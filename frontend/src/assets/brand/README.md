@@ -32,4 +32,4 @@ python src/assets/brand/make_svg2.py
 | 应用图标全尺寸 | `src-tauri/icons/**`(由 `shark-src-1024.png` 生成) | ✅ |
 | UI accent | `src/index.css` 四色预设(设置页可换) | 与品牌解耦,用户自选 |
 
-**注意:`identifier` 保持 `com.skillsmanager.app` 不改** —— AppData 数据目录由它派生,改标识符会丢用户数据。
+**注意:数据目录与 identifier 解耦** —— `config.rs` 固定使用 `Roaming\Skills Shark`（`DATA_DIR_NAME`），不随 identifier 变化；identifier 已于 v0.1.0 首发前更正为 `com.skills-shark.desktop`（不以 `.app` 结尾，避免 macOS 约定冲突）。

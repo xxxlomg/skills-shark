@@ -2,6 +2,8 @@
 
 > 本地 AI 技能（Agent Skills）管理、翻译与打包桌面工具 —— 让中文用户**一眼看懂、一用就会**。
 
+**当前版本：v0.1.0**（2026-08-04 首发）· Windows x64 NSIS 安装包
+
 鲨 = 敏锐、精准、快。SkillsShark 把你散落在各个 AI 工具里的 skills 统一扫进来：
 看懂它（流式翻译成中英对照）、管好它（分类 / 搜索 / 状态追踪）、分享它（打包成 `.skillpack` 在平台内流通）。
 
@@ -123,6 +125,17 @@ xxx.skillpack (zip)
 - [`docs/`](./docs) — 各阶段规划与拍板记录
 - [`AGENTS.md`](./AGENTS.md) — 项目演进追踪
 
+## 📌 版本记录
+
+### v0.1.0（2026-08-04）
+
+首个公开版本。
+
+- **发布形态**：Windows x64 NSIS 安装程序（用户自选安装目录；简体中文/English 安装界面；支持"仅为我安装/所有用户"；内嵌 WebView2 引导）
+- **多源扫描 / 流式翻译 / Skill Packs（P1：打包、导入、安装、sha256 自验、版本闸）/ zip 与 Git URL 导入管线 / 数据目录外部化 / 双主题**
+- 标识符定为 `com.skills-shark.desktop`（数据目录与标识符解耦，固定 `Roaming\Skills Shark`）
+- 内置两个产品使用技能：`skills-shark-quickstart`（上手指南）、`skills-shark-packs`（打包流通），兼作翻译功能演示素材
+
 ## 🤝 贡献
 
 本项目由 Paw（需求 / 方案 / 文档）与 Pal（架构 / 实现）协作开发。
@@ -130,4 +143,4 @@ xxx.skillpack (zip)
 
 ---
 
-*最后更新：2026-08-03*
+*最后更新：2026-08-04*
