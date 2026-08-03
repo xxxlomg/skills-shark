@@ -1,0 +1,28 @@
+[package]
+name = "skills-manager"
+version = "0.1.0"
+description = "Skills Manager - 多路径 Skills 管理与翻译工具"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "skills_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+regex = "1"
+walkdir = "2"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+zip = "8.6.0"
+tempfile = "3.27.0"
+tauri-plugin-dialog = "2.7.2"
+ureq = "3.3.0"

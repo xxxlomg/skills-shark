@@ -1,0 +1,131 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+
+use crate::config;
+
+// ---------------------------------------------------------------------------
+// 数据模型
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranslationMeta {
+    pub source_path: String,
+    #[serde(default)]
+    pub scan_label: String,
+    #[serde(default)]
+    pub source_hash: String,
+    #[serde(default)]
+    pub translated_at: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub title_zh: String,
+    #[serde(default)]
+    pub source_deleted: bool,
+}
+
+// ---------------------------------------------------------------------------
+// 读写 translations.json
+// ---------------------------------------------------------------------------
+
+pub fn load_all_meta() -> HashMap<String, TranslationMeta> {
+    let path = config::translations_json_path();
+    if path.exists() {
+        if let Ok(text) = fs::read_to_string(&path) {
+            if let Ok(map) = serde_json::from_str::<HashMap<String, TranslationMeta>>(&text) {
+                return map;
+            }
+        }
+    }
+    HashMap::new()
+}
+
+fn save_all_meta(meta: &HashMap<String, TranslationMeta>) -> Result<(), String> {
+    let path = config::translations_json_path();
+    let json = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// 单条操作
+// ---------------------------------------------------------------------------
+
+pub fn save_translation(
+    skill_id: &str,
+    bilingual_text: &str,
+    source_path: &str,
+    scan_label: &str,
+    source_hash: &str,
+    model: &str,
+    title_zh: &str,
+) -> Result<(), String> {
+    // 写 .md 文件
+    let dir = config::translations_dir();
+    let _ = fs::create_dir_all(&dir);
+    let md_path = dir.join(format!("{}.md", skill_id));
+    fs::write(&md_path, bilingual_text).map_err(|e| e.to_string())?;
+
+    // 更新 index
+    let mut index = load_all_meta();
+    let now = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string();
+    index.insert(
+        skill_id.to_string(),
+        TranslationMeta {
+            source_path: source_path.to_string(),
+            scan_label: scan_label.to_string(),
+            source_hash: source_hash.to_string(),
+            translated_at: now,
+            model: model.to_string(),
+            title_zh: title_zh.to_string(),
+            source_deleted: false,
+        },
+    );
+    save_all_meta(&index)
+}
+
+/// id 迁移换键（PLAN-04 §2.3）：md 文件改名 + meta 换键回写。
+/// 旧键不存在时 no-op，幂等。
+pub fn rekey(old_id: &str, new_id: &str) -> Result<(), String> {
+    let mut index = load_all_meta();
+    let Some(meta) = index.remove(old_id) else {
+        return Ok(());
+    };
+    let dir = config::translations_dir();
+    let old_f = dir.join(format!("{}.md", old_id));
+    let new_f = dir.join(format!("{}.md", new_id));
+    if old_f.exists() {
+        let _ = fs::rename(&old_f, &new_f);
+    }
+    index.insert(new_id.to_string(), meta);
+    save_all_meta(&index)
+}
+
+pub fn read_translated_content(skill_id: &str) -> Option<String> {
+    let md_path = config::translations_dir().join(format!("{}.md", skill_id));
+    fs::read_to_string(&md_path).ok()
+}
+
+pub fn sync_deleted_status(current_ids: &[String]) -> Result<(), String> {
+    let mut index = load_all_meta();
+    let current_set: std::collections::HashSet<&str> =
+        current_ids.iter().map(|s| s.as_str()).collect();
+    let mut changed = false;
+
+    for (sid, meta) in index.iter_mut() {
+        if current_set.contains(sid.as_str()) {
+            if meta.source_deleted {
+                meta.source_deleted = false;
+                changed = true;
+            }
+        } else if !meta.source_deleted {
+            meta.source_deleted = true;
+            changed = true;
+        }
+    }
+
+    if changed {
+        save_all_meta(&index)?;
+    }
+    Ok(())
+}

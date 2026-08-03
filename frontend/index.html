@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="SkillsShark 技能鲨 — 浏览、搜索、查看中英对照技能文档" />
+    <title>SkillsShark · 技能鲨</title>
+    <!-- 主题色预设早设：bundle 加载前命中 [data-accent] 选择器，避免首帧闪默认色 -->
+    <script>
+      (function () {
+        try {
+          var a = localStorage.getItem("skillbox-accent");
+          if (a) document.documentElement.setAttribute("data-accent", a);
+        } catch (e) {}
+      })();
+    </script>
+    <!-- 零字体请求：系统字体栈（见 src/index.css --font-* tokens）。
+         历史教训：Google Fonts 外链是渲染阻塞 stylesheet，国内常挂起
+         10-30s；规范规定 module script 执行需等 pending stylesheet，
+         连坐 env.mjs 等全部模块请求，表现为启动卡死。 -->
+    <style>
+      /* ===== 启动蒙版（内联，先于 JS bundle 生效，消除白屏） ===== */
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: radial-gradient(120% 90% at 50% -10%, #0c0c1a, #070710 70%);
+        transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui,
+          -apple-system, Roboto, sans-serif;
+      }
+      #app-splash.sp-hide {
+        opacity: 0;
+        transform: scale(1.04);
+        filter: blur(8px);
+        pointer-events: none;
+      }
+      .sp-blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(64px);
+        opacity: 0.55;
+        will-change: transform;
+      }
+      .sp-blob-1 {
+        width: 420px; height: 420px; top: -90px; left: -70px;
+        background: radial-gradient(circle at 30% 30%, rgba(127, 160, 96, 0.3), transparent 70%);
+        animation: sp-drift 11s ease-in-out infinite;
+      }
+      .sp-blob-2 {
+        width: 380px; height: 380px; bottom: -100px; right: -60px;
+        background: radial-gradient(circle at 60% 40%, rgba(95, 185, 154, 0.18), transparent 70%);
+        animation: sp-drift 13s ease-in-out infinite reverse;
+      }
+      .sp-blob-3 {
+        width: 300px; height: 300px; top: 40%; left: 55%;
+        background: radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.12), transparent 70%);
+        opacity: 0.5;
+        animation: sp-drift 9s ease-in-out infinite;
+      }
+      .sp-frost {
+        position: absolute;
+        inset: 0;
+        background: rgba(7, 7, 16, 0.3);
+        -webkit-backdrop-filter: blur(2px) saturate(125%);
+        backdrop-filter: blur(2px) saturate(125%);
+      }
+      .sp-content {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        animation: sp-float 3.4s ease-in-out infinite;
+      }
+      .sp-logo-wrap {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        filter: drop-shadow(0 14px 30px rgba(22, 41, 74, 0.35));
+      }
+      .sp-logo-glow {
+        position: absolute;
+        inset: -28%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(38, 70, 128, 0.45), transparent 68%);
+        filter: blur(10px);
+        z-index: -1;
+        animation: sp-pulse 2.6s ease-in-out infinite;
+      }
+      .sp-logo-wrap svg, .sp-logo-wrap img { display: block; width: 100%; height: 100%; }
+      .sp-logo-wrap img { border-radius: 22px; }
+      .sp-title {
+        margin-top: 22px;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: rgba(255, 255, 255, 0.92);
+        text-shadow: 0 2px 24px rgba(127, 160, 96, 0.4);
+      }
+      .sp-sub {
+        margin-top: 6px;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.56);
+      }
+      .sp-bar {
+        margin-top: 22px;
+        width: 132px;
+        height: 3px;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+      .sp-bar-fill {
+        width: 42%;
+        height: 100%;
+        border-radius: 9999px;
+        background: linear-gradient(90deg, #7fa060, #5fb99a);
+        box-shadow: 0 0 12px rgba(127, 160, 96, 0.5);
+        animation: sp-bar 1.15s ease-in-out infinite;
+      }
+      @keyframes sp-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-9px); }
+      }
+      @keyframes sp-pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 0.85; transform: scale(1.12); }
+      }
+      @keyframes sp-drift {
+        0%, 100% { transform: translate(0, 0); }
+        50% { transform: translate(22px, -18px); }
+      }
+      @keyframes sp-bar {
+        0% { transform: translateX(-130%); }
+        100% { transform: translateX(330%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .sp-content, .sp-logo-glow, .sp-blob, .sp-bar-fill { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 启动蒙版：JS bundle 加载前即渲染 -->
+    <div id="app-splash">
+      <div class="sp-blob sp-blob-1"></div>
+      <div class="sp-blob sp-blob-2"></div>
+      <div class="sp-blob sp-blob-3"></div>
+      <div class="sp-frost"></div>
+      <div class="sp-content">
+        <div class="sp-logo-wrap">
+          <div class="sp-logo-glow"></div>
+          <!-- SkillsShark mark：#18 线稿鲨 -->
+          <img src="/src/assets/brand/shark-tile.png" alt="" />
+        </div>
+        <div class="sp-title">SkillsShark</div>
+        <div class="sp-sub">本地技能管理与翻译</div>
+        <div class="sp-bar"><div class="sp-bar-fill"></div></div>
+      </div>
+    </div>
+
+    <script>
+      // 蒙版退场：保证最小停留 700ms，淡出后移除节点
+      (function () {
+        var el = document.getElementById("app-splash");
+        if (!el) return;
+        var born = performance.now();
+        var MIN = 700;
+        var hiding = false;
+        function remove() { if (el && el.parentNode) el.parentNode.removeChild(el); }
+        function doHide() {
+          if (hiding) return;
+          hiding = true;
+          el.classList.add("sp-hide");
+          var done = false;
+          function fin() { if (done) return; done = true; remove(); }
+          el.addEventListener("transitionend", fin, { once: true });
+          setTimeout(fin, 700);
+        }
+        window.hideSplash = function () {
+          var wait = MIN - (performance.now() - born);
+          if (wait > 0) setTimeout(doHide, wait); else doHide();
+        };
+      })();
+    </script>
+
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
