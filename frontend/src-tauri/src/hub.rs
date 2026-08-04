@@ -461,6 +461,19 @@ pub fn links_status(base: &Path) -> Vec<LinkStatus> {
     ledger.links.iter().map(diagnose_link).collect()
 }
 
+/// 删除某工具名下全部账本条目（删除自定义工具时 force 联动，§2.6）。
+/// 只动账本、不碰磁盘落点：用户已在删除确认中知晓落点失去纳管。
+pub fn drop_links_for_tool(base: &Path, tool_id: &str) -> Result<usize, String> {
+    let mut ledger = load_ledger(base);
+    let before = ledger.links.len();
+    ledger.links.retain(|l| l.target_tool != tool_id);
+    let removed = before - ledger.links.len();
+    if removed > 0 {
+        save_ledger(base, &ledger)?;
+    }
+    Ok(removed)
+}
+
 fn diagnose_link(link: &HubLink) -> LinkStatus {
     let target = PathBuf::from(&link.target);
     let source = PathBuf::from(&link.source);
@@ -878,6 +891,35 @@ mod tests {
         assert!(link_skill_to_dir(&base, &deep, &tgt_root, "codex", LinkMode::Link).is_err());
 
         assert!(load_ledger(&base).links.is_empty(), "失败路径不得留账本记录");
+        cleanup(&root);
+    }
+
+    #[test]
+    fn drop_links_for_tool_removes_only_matching() {
+        let root = tmp_root("drop");
+        let base = root.join("data");
+        let mut ledger = LinksLedger::default();
+        for (i, tool) in ["custom-lab", "codex", "custom-lab"].iter().enumerate() {
+            ledger.links.push(HubLink {
+                id: format!("l{}", i),
+                skill_name: format!("s{}", i),
+                source: r"D:\src\s".to_string(),
+                target: format!(r"C:\tgt\{}", tool),
+                target_tool: tool.to_string(),
+                mode: LedgerMode::Link,
+                created_at: String::new(),
+            });
+        }
+        save_ledger(&base, &ledger).unwrap();
+
+        let removed = drop_links_for_tool(&base, "custom-lab").unwrap();
+        assert_eq!(removed, 2);
+        let after = load_ledger(&base);
+        assert_eq!(after.links.len(), 1);
+        assert_eq!(after.links[0].target_tool, "codex");
+
+        // 无匹配工具 → 0 条，不重写
+        assert_eq!(drop_links_for_tool(&base, "nope").unwrap(), 0);
         cleanup(&root);
     }
 }

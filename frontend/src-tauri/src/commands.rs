@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::config::{self, AppConfig, MaskedConfig, ScanPathItem};
+use crate::config::{self, AppConfig, MaskedConfig};
 use crate::hub;
 use crate::import;
 use crate::pack;
@@ -124,26 +124,23 @@ pub fn get_llm_api_key() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// save_config — 保存配置（如果 api_key 含 **** 则保留原值）
+// save_config — 仅保存 LLM 配置（如果 api_key 含 **** 则保留原值）。
+// v0.2（B5 收尾）：tools 不再经此命令改动——工具增删改走 hub_*_tool 命令，
+// 前端 scan_paths 桥接已拆除（PLAN-06 §2.6）。
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub fn save_config(
-    scan_paths: Vec<ScanPathItem>,
     llm_api_key: String,
     llm_base_url: String,
     llm_model: String,
 ) -> Result<(), String> {
     config::debug_log(&format!(
-        "save_config CALLED: scan_paths={} api_key_len={} base_url={} model={}",
-        scan_paths.len(),
+        "save_config CALLED: api_key_len={} base_url={} model={}",
         llm_api_key.len(),
         llm_base_url,
         llm_model
     ));
-    for (i, sp) in scan_paths.iter().enumerate() {
-        config::debug_log(&format!("  scan_path[{}] = {} ({}) enabled={}", i, sp.path, sp.label, sp.enabled));
-    }
     let old = config::load_config();
     let final_key = if llm_api_key.contains("****") && !old.llm.api_key.is_empty() {
         old.llm.api_key.clone()
@@ -151,10 +148,8 @@ pub fn save_config(
         llm_api_key
     };
 
-    // v0.2（B1）：前端仍以 scan_paths 行提交（过渡契约），反向合并回 tools。
-    let tools = config::apply_scan_paths_edit(&old.tools, &scan_paths);
     let new_config = AppConfig {
-        tools,
+        tools: old.tools,
         llm: config::LLMConfig {
             api_key: final_key,
             base_url: llm_base_url,
@@ -163,7 +158,7 @@ pub fn save_config(
     };
     match config::save_config(&new_config) {
         Ok(()) => {
-            config::debug_log("save_config OK: tools merged & written");
+            config::debug_log("save_config OK: llm written, tools untouched");
             Ok(())
         }
         Err(e) => {
@@ -171,17 +166,6 @@ pub fn save_config(
             Err(e)
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// detect_paths — v0.2 语义：返回被禁用的注册表工具中仍存在的候选路径
-// （注册表工具永远在配置中，「检测未配置路径」已消亡；B5 前端改造后此命令退役）
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-pub fn detect_paths() -> Vec<ScanPathItem> {
-    let cfg = config::load_config();
-    config::detect_unconfigured_paths(&cfg.tools)
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +234,119 @@ pub fn hub_links_status() -> Vec<hub::LinkStatus> {
 #[tauri::command]
 pub fn hub_rescan() -> Vec<Skill> {
     scan_skills()
+}
+
+// ---------------------------------------------------------------------------
+// 工具管理（PLAN-06 §2.6/§2.10，B5 收尾）：设置页「工具」面板数据源。
+// 桥接命令 detect_paths 已退役：注册表工具恒在配置中，禁用/启用走 update。
+// ---------------------------------------------------------------------------
+
+/// 工具全量信息（设置页工具管理渲染用）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolInfo {
+    pub id: String,
+    pub name: String,
+    /// 注册表/应用自有工具：名称路径不可改，只能禁用
+    pub builtin: bool,
+    /// 应用自有来源（builtin/imported/authored）：不可作引用落点
+    pub app_owned: bool,
+    pub enabled: bool,
+    pub linkable: bool,
+    /// 候选路径原样（含 `~` / `$VAR` 模板）
+    pub paths: Vec<String>,
+    /// 各候选展开后是否存在（与 paths 一一对应）
+    pub path_exists: Vec<bool>,
+    /// 名下引用记录数（links.json 台账）
+    pub link_count: usize,
+}
+
+fn tool_info(t: &config::ToolEntry, link_count: usize) -> ToolInfo {
+    ToolInfo {
+        id: t.id.clone(),
+        name: t.name.clone(),
+        builtin: t.builtin,
+        app_owned: t.app_owned,
+        enabled: t.enabled,
+        linkable: t.linkable,
+        paths: t.paths.clone(),
+        path_exists: t
+            .paths
+            .iter()
+            .map(|c| config::expand_path(c).map(|p| p.is_dir()).unwrap_or(false))
+            .collect(),
+        link_count,
+    }
+}
+
+fn link_counts_by_tool() -> std::collections::HashMap<String, usize> {
+    let ledger = hub::load_ledger(&config::get_data_dir());
+    let mut m: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for l in &ledger.links {
+        *m.entry(l.target_tool.clone()).or_insert(0) += 1;
+    }
+    m
+}
+
+#[tauri::command]
+pub fn hub_list_tools() -> Vec<ToolInfo> {
+    let cfg = config::load_config();
+    let counts = link_counts_by_tool();
+    cfg.tools
+        .iter()
+        .map(|t| tool_info(t, counts.get(&t.id).copied().unwrap_or(0)))
+        .collect()
+}
+
+#[tauri::command]
+pub fn hub_add_tool(name: String, paths: Vec<String>) -> Result<ToolInfo, String> {
+    let mut cfg = config::load_config();
+    let entry = config::add_tool(&mut cfg.tools, &name, &paths)?;
+    config::save_config(&cfg)?;
+    config::debug_log(&format!("hub_add_tool: {} -> {}", entry.name, entry.id));
+    Ok(tool_info(&entry, 0))
+}
+
+#[tauri::command]
+pub fn hub_update_tool(
+    id: String,
+    name: Option<String>,
+    paths: Option<Vec<String>>,
+    enabled: Option<bool>,
+) -> Result<ToolInfo, String> {
+    let mut cfg = config::load_config();
+    let entry = config::update_tool(
+        &mut cfg.tools,
+        &id,
+        name.as_deref(),
+        paths.as_deref(),
+        enabled,
+    )?;
+    config::save_config(&cfg)?;
+    let counts = link_counts_by_tool();
+    Ok(tool_info(&entry, counts.get(&id).copied().unwrap_or(0)))
+}
+
+#[tauri::command]
+pub fn hub_remove_tool(id: String, force: bool) -> Result<(), String> {
+    let mut cfg = config::load_config();
+    let counts = link_counts_by_tool();
+    let n = counts.get(&id).copied().unwrap_or(0);
+    if n > 0 && !force {
+        return Err(format!(
+            "该工具名下还有 {} 条引用记录，请先在 Hub 页解除引用，或确认「一并移除记录」后重试",
+            n
+        ));
+    }
+    config::remove_tool(&mut cfg.tools, &id)?;
+    config::save_config(&cfg)?;
+    if n > 0 {
+        let dropped = hub::drop_links_for_tool(&config::get_data_dir(), &id)?;
+        config::debug_log(&format!(
+            "hub_remove_tool: {} 已删除，连带清理 {} 条账本记录",
+            id, dropped
+        ));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -363,4 +460,18 @@ pub fn pack_install(id: String) -> Result<usize, String> {
 #[tauri::command]
 pub fn pack_delete(id: String) -> Result<(), String> {
     pack::delete_pack(&config::packs_dir(), &id)
+}
+
+// ---------------------------------------------------------------------------
+// skill_validate — 模块 C 校验器（PLAN-06 §3.8）
+// ---------------------------------------------------------------------------
+
+/// 校验任意技能目录。mode: "strict"（发布前闸）| "diagnostic"（默认，永不阻断）。
+#[tauri::command]
+pub fn skill_validate(path: String, mode: Option<String>) -> Result<crate::validate::ValidationReport, String> {
+    let mode = match mode.as_deref() {
+        Some("strict") => crate::validate::Mode::Strict,
+        _ => crate::validate::Mode::Diagnostic,
+    };
+    Ok(crate::validate::validate_dir(Path::new(&path), mode))
 }

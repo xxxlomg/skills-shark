@@ -13,11 +13,10 @@ import {
   ToggleLeft,
   ToggleRight,
   AlertTriangle,
-  Search,
-  Loader2,
   Palette,
   Check,
   Settings2,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -30,13 +29,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tip } from "@/components/common/Tip";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import {
   loadLLMConfig,
   saveLLMConfig,
   LLM_DEFAULTS,
 } from "@/lib/llm-config";
-import { detectPaths } from "@/lib/api";
-import type { ScanPathItem } from "@/lib/api";
+import {
+  hubListTools,
+  hubAddTool,
+  hubUpdateTool,
+  hubRemoveTool,
+} from "@/lib/api";
+import type { ToolInfo } from "@/lib/api";
 import { testLLMConnection } from "@/lib/translate-api";
 import { ACCENTS, getAccent, setAccent, type AccentId } from "@/lib/accent";
 
@@ -47,11 +52,11 @@ interface SettingsDialogProps {
   onSaved?: () => void;
 }
 
-type Section = "llm" | "paths" | "appearance";
+type Section = "llm" | "tools" | "appearance";
 
 const SECTIONS: { id: Section; label: string; icon: typeof Key; hint: string }[] = [
   { id: "llm", label: "LLM 配置", icon: Key, hint: "翻译服务的密钥与端点" },
-  { id: "paths", label: "扫描路径", icon: FolderOpen, hint: "Skills 所在的文件夹" },
+  { id: "tools", label: "工具", icon: FolderOpen, hint: "扫描来源与引用落点" },
   { id: "appearance", label: "外观", icon: Palette, hint: "界面主题色" },
 ];
 
@@ -67,15 +72,15 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
   const [hasExisting, setHasExisting] = useState(false);
   const [testing, setTesting] = useState(false);
 
-  // 扫描路径
-  const [scanPaths, setScanPaths] = useState<ScanPathItem[]>([]);
-  const [pathExists, setPathExists] = useState<boolean[]>([]);
-  const [newPath, setNewPath] = useState("");
-  const [newLabel, setNewLabel] = useState("");
+  // 工具管理（PLAN-06 §2.6：注册表 + 自定义，即时保存）
+  const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [newToolName, setNewToolName] = useState("");
+  const [newToolPaths, setNewToolPaths] = useState("");
+  const [addingTool, setAddingTool] = useState(false);
   const [loaded, setLoaded] = useState(false);
-
-  // 检测默认路径
-  const [detecting, setDetecting] = useState(false);
+  // 删除确认（link_count > 0 时提示「一并移除记录」）
+  const [removing, setRemoving] = useState<ToolInfo | null>(null);
+  const [removeLoading, setRemoveLoading] = useState(false);
 
   // 主题色预设
   const [accent, setAccentState] = useState<AccentId>(() => getAccent());
@@ -84,8 +89,8 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
   useEffect(() => {
     if (!open) return;
     setLoaded(false);
-    loadLLMConfig()
-      .then((config) => {
+    Promise.all([loadLLMConfig(), hubListTools()])
+      .then(([config, toolList]) => {
         if (config.hasKey) {
           setApiKey(config.apiKey);
           setHasExisting(true);
@@ -95,16 +100,15 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         }
         setBaseUrl(config.baseUrl || LLM_DEFAULTS.baseUrl);
         setModel(config.model || LLM_DEFAULTS.model);
-        setScanPaths(config.scanPaths || []);
-        setPathExists(config.pathExists || []);
+        setTools(toolList);
       })
       .catch(() => {
         toast.error("加载配置失败");
       })
       .finally(() => setLoaded(true));
     setShowKey(false);
-    setNewPath("");
-    setNewLabel("");
+    setNewToolName("");
+    setNewToolPaths("");
   }, [open]);
 
   const handleSave = useCallback(async () => {
@@ -112,36 +116,12 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
       toast.error("配置尚未加载完成，请稍候");
       return;
     }
-    // 兼容：表单里还填着一条未点"添加"的路径时，直接保存它
-    let finalPaths = scanPaths;
-    const pendingPath = newPath.trim();
-    if (pendingPath) {
-      const exists = scanPaths.some(
-        (sp) => sp.path.replace(/\\+$/, "") === pendingPath.replace(/\\+$/, "")
-      );
-      if (exists) {
-        toast.info("表单中填写的路径已在列表中，已直接保存");
-      } else {
-        finalPaths = [
-          ...scanPaths,
-          {
-            path: pendingPath,
-            label: newLabel.trim() || pendingPath,
-            enabled: true,
-          },
-        ];
-        toast.info(`已自动添加：${pendingPath}`);
-      }
-    }
     try {
-      await saveLLMConfig(
-        {
-          apiKey: apiKey.trim(),
-          baseUrl: baseUrl.trim() || LLM_DEFAULTS.baseUrl,
-          model: model.trim() || LLM_DEFAULTS.model,
-        },
-        finalPaths
-      );
+      await saveLLMConfig({
+        apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim() || LLM_DEFAULTS.baseUrl,
+        model: model.trim() || LLM_DEFAULTS.model,
+      });
       setHasExisting(true);
       toast.success("配置已保存");
       onOpenChange(false);
@@ -150,18 +130,15 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
       const msg = err instanceof Error ? err.message : "未知错误";
       toast.error(`保存失败：${msg}`);
     }
-  }, [apiKey, baseUrl, model, scanPaths, newPath, newLabel, onOpenChange, onSaved, loaded]);
+  }, [apiKey, baseUrl, model, onOpenChange, onSaved, loaded]);
 
   const handleClear = useCallback(async () => {
     try {
-      await saveLLMConfig(
-        {
-          apiKey: "",
-          baseUrl: LLM_DEFAULTS.baseUrl,
-          model: LLM_DEFAULTS.model,
-        },
-        scanPaths
-      );
+      await saveLLMConfig({
+        apiKey: "",
+        baseUrl: LLM_DEFAULTS.baseUrl,
+        model: LLM_DEFAULTS.model,
+      });
       setApiKey("");
       setBaseUrl(LLM_DEFAULTS.baseUrl);
       setModel(LLM_DEFAULTS.model);
@@ -170,7 +147,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
     } catch {
       toast.error("清除失败");
     }
-  }, [scanPaths]);
+  }, []);
 
   const handleTest = useCallback(async () => {
     if (!apiKey.trim()) {
@@ -193,52 +170,74 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
     }
   }, [apiKey, baseUrl, model]);
 
-  // 扫描路径操作
-  const addScanPath = useCallback(() => {
-    if (!newPath.trim()) {
-      toast.error("请输入路径");
+  // ---- 工具管理操作（全部即时保存，不经底部「保存」按钮）----
+
+  const refreshTools = useCallback(async () => {
+    setTools(await hubListTools());
+  }, []);
+
+  const handleToggleTool = useCallback(
+    async (tool: ToolInfo) => {
+      try {
+        await hubUpdateTool({ id: tool.id, enabled: !tool.enabled });
+        await refreshTools();
+        toast.success(!tool.enabled ? `已启用 ${tool.name}` : `已禁用 ${tool.name}`);
+        onSaved?.();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "未知错误";
+        toast.error(`操作失败：${msg}`);
+      }
+    },
+    [refreshTools, onSaved],
+  );
+
+  const handleAddTool = useCallback(async () => {
+    const name = newToolName.trim();
+    const paths = newToolPaths
+      .split("\n")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!name) {
+      toast.error("请填写工具名称");
       return;
     }
-    const label = newLabel.trim() || newPath.trim();
-    setScanPaths((prev) => [
-      ...prev,
-      { path: newPath.trim(), label, enabled: true },
-    ]);
-    setPathExists((prev) => [...prev, true]); // 新添加的默认标记为存在（保存后刷新会更新）
-    setNewPath("");
-    setNewLabel("");
-  }, [newPath, newLabel]);
-
-  const removeScanPath = useCallback((index: number) => {
-    setScanPaths((prev) => prev.filter((_, i) => i !== index));
-    setPathExists((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const toggleScanPath = useCallback((index: number) => {
-    setScanPaths((prev) =>
-      prev.map((sp, i) => (i === index ? { ...sp, enabled: !sp.enabled } : sp)),
-    );
-  }, []);
-
-  // 检测默认路径
-  const handleDetectPaths = useCallback(async () => {
-    setDetecting(true);
+    if (paths.length === 0) {
+      toast.error("请至少填写一个 skills 目录路径");
+      return;
+    }
+    setAddingTool(true);
     try {
-      const newPaths = await detectPaths();
-      if (newPaths.length === 0) {
-        toast.info("未发现新的默认路径（所有已知 AI 工具路径要么不存在，要么已配置）");
-        return;
-      }
-      setScanPaths((prev) => [...prev, ...newPaths]);
-      setPathExists((prev) => [...prev, ...newPaths.map(() => true)]);
-      toast.success(`检测到 ${newPaths.length} 个新路径，已添加（记得点保存）`);
+      const t = await hubAddTool({ name, paths });
+      toast.success(`已添加工具 ${t.name}`);
+      setNewToolName("");
+      setNewToolPaths("");
+      await refreshTools();
+      onSaved?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "未知错误";
-      toast.error(`检测失败：${msg}`);
+      toast.error(`添加失败：${msg}`);
     } finally {
-      setDetecting(false);
+      setAddingTool(false);
     }
-  }, []);
+  }, [newToolName, newToolPaths, refreshTools, onSaved]);
+
+  const handleConfirmRemove = useCallback(async () => {
+    if (!removing) return;
+    setRemoveLoading(true);
+    try {
+      // link_count > 0 → 确认框已说明将一并移除记录，force=true
+      await hubRemoveTool({ id: removing.id, force: removing.link_count > 0 });
+      toast.success(`已删除工具 ${removing.name}`);
+      setRemoving(null);
+      await refreshTools();
+      onSaved?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      toast.error(`删除失败：${msg}`);
+    } finally {
+      setRemoveLoading(false);
+    }
+  }, [removing, refreshTools, onSaved]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -249,7 +248,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
             设置
           </DialogTitle>
           <DialogDescription>
-            配置 LLM API 密钥、Skills 扫描路径与外观。
+            配置 LLM API 密钥、工具注册表与外观。
           </DialogDescription>
         </DialogHeader>
 
@@ -369,38 +368,43 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
               </>
             )}
 
-            {/* 扫描路径 */}
-            {section === "paths" && (
+            {/* 工具管理 */}
+            {section === "tools" && (
               <>
                 <p className="text-xs text-muted-foreground">
-                  添加 Skills 所在的文件夹路径。系统会递归扫描每个路径下含 SKILL.md 的子目录（最深 3 层）。
+                  工具即扫描来源，也是 Hub 引用落点。内置工具只能启用/禁用；自定义工具可增删。改动即时保存。
                 </p>
 
-                {/* 已有路径列表 */}
+                {/* 工具列表 */}
                 <div className="space-y-2">
-                  {scanPaths.length === 0 && (
+                  {tools.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      暂无扫描路径
+                      暂无工具
                     </p>
                   )}
-                  {scanPaths.map((sp, i) => {
-                    const exists = i < pathExists.length ? pathExists[i] : true;
+                  {tools.map((t) => {
+                    const existsAny = t.path_exists.some(Boolean);
+                    const badge = t.app_owned
+                      ? "应用自有"
+                      : t.builtin
+                        ? "内置"
+                        : "自定义";
                     return (
                       <div
-                        key={i}
-                        className={`flex items-center gap-2 rounded-lg border p-2 transition-colors ${
-                          !exists
+                        key={t.id}
+                        className={`flex items-start gap-2 rounded-lg border p-2 transition-colors ${
+                          !t.app_owned && !existsAny
                             ? "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20"
                             : "border-border"
                         }`}
                       >
-                        <Tip label={sp.enabled ? "点击禁用" : "点击启用"}>
+                        <Tip label={t.enabled ? "点击禁用" : "点击启用"}>
                           <button
                             type="button"
-                            onClick={() => toggleScanPath(i)}
-                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => handleToggleTool(t)}
+                            className="shrink-0 text-muted-foreground hover:text-foreground mt-0.5"
                           >
-                            {sp.enabled ? (
+                            {t.enabled ? (
                               <ToggleRight className="h-[26px] w-[26px] text-green-500" />
                             ) : (
                               <ToggleLeft className="h-[26px] w-[26px]" />
@@ -408,79 +412,94 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                           </button>
                         </Tip>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{sp.label}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {sp.path}
+                          <p className="flex items-center gap-2 text-sm font-medium">
+                            <span className="truncate">{t.name}</span>
+                            <span className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
+                              {badge}
+                            </span>
+                            {t.link_count > 0 && (
+                              <span className="flex shrink-0 items-center gap-0.5 rounded border border-brand/40 bg-brand/10 px-1 py-px text-[10px] text-brand">
+                                <Link2 className="h-2.5 w-2.5" />
+                                {t.link_count} 条引用
+                              </span>
+                            )}
                           </p>
-                          {!exists && (
+                          {t.app_owned ? (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              路径由应用管理（{t.id === "builtin" ? "内置技能" : "导入安装的技能"}）
+                            </p>
+                          ) : (
+                            <div className="mt-0.5 space-y-px">
+                              {t.paths.map((p, i) => (
+                                <p
+                                  key={i}
+                                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                                >
+                                  <span
+                                    className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                                      t.path_exists[i]
+                                        ? "bg-green-500"
+                                        : "bg-stroke-hi"
+                                    }`}
+                                  />
+                                  <span className="truncate">{p}</span>
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {!t.app_owned && !existsAny && (
                             <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-0.5">
                               <AlertTriangle className="h-3 w-3" />
-                              目录不存在
+                              候选目录均不存在（引用时将自动创建首个候选）
                             </p>
                           )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
-                          onClick={() => removeScanPath(i)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {!t.builtin && !t.app_owned && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                            onClick={() => setRemoving(t)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     );
                   })}
                 </div>
 
-                {/* 检测默认路径按钮 */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDetectPaths}
-                  disabled={detecting || !loaded}
-                  className="w-full text-xs"
-                >
-                  {detecting ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Search className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  {detecting ? "检测中…" : "检测默认 AI 工具路径"}
-                </Button>
-
-                {/* 添加新路径 */}
+                {/* 添加自定义工具 */}
                 <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
                   <p className="text-xs font-medium text-muted-foreground">
-                    添加扫描路径
+                    添加自定义工具（可作为 Hub 引用落点）
                   </p>
                   <Input
                     type="text"
-                    placeholder="文件夹路径，如 C:\Users\xxx\.cursor\skills"
-                    value={newPath}
-                    onChange={(e) => setNewPath(e.target.value)}
+                    placeholder="工具名称，如 My Lab"
+                    value={newToolName}
+                    onChange={(e) => setNewToolName(e.target.value)}
                     className="text-xs"
-                    disabled={!loaded}
+                    disabled={!loaded || addingTool}
                   />
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      placeholder="标签，如 Cursor"
-                      value={newLabel}
-                      onChange={(e) => setNewLabel(e.target.value)}
-                      className="text-xs flex-1 min-w-0"
-                      disabled={!loaded}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addScanPath}
-                      className="text-xs"
-                      disabled={!loaded}
-                    >
-                      <Plus className="mr-1 h-3 w-3" />
-                      添加
-                    </Button>
-                  </div>
+                  <textarea
+                    placeholder={"skills 目录路径，每行一个，支持 ~ 与 $ENV 变量\n如 D:\\vault\\skills"}
+                    value={newToolPaths}
+                    onChange={(e) => setNewToolPaths(e.target.value)}
+                    rows={3}
+                    disabled={!loaded || addingTool}
+                    className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddTool}
+                    className="w-full text-xs"
+                    disabled={!loaded || addingTool}
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    {addingTool ? "添加中…" : "添加工具"}
+                  </Button>
                 </div>
               </>
             )}
@@ -528,13 +547,35 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
           </div>
         </div>
 
-        {/* 保存按钮 */}
+        {/* 保存按钮（仅 LLM；工具改动即时保存） */}
         <div className="flex shrink-0 justify-end border-t border-stroke px-5 py-4">
-          <Button onClick={handleSave} className="w-full" disabled={!loaded}>
+          <Button
+            onClick={handleSave}
+            className="w-full"
+            disabled={!loaded}
+          >
             <Save className="mr-1.5 h-4 w-4" />
             {loaded ? "保存配置" : "加载配置中…"}
           </Button>
         </div>
+
+        {/* 删除自定义工具确认 */}
+        <ConfirmDialog
+          open={removing !== null}
+          onOpenChange={(o) => !o && setRemoving(null)}
+          title={`删除工具「${removing?.name ?? ""}」`}
+          description={
+            removing && removing.link_count > 0
+              ? `该工具名下还有 ${removing.link_count} 条引用记录。\n删除后这些记录将一并从台账移除（磁盘上的落点目录不会被删除，但不再被纳管）。`
+              : "删除后该工具的目录将不再被扫描。\n此操作不可撤销。"
+          }
+          confirmText={
+            removing && removing.link_count > 0 ? "删除并移除记录" : "删除"
+          }
+          variant="destructive"
+          loading={removeLoading}
+          onConfirm={handleConfirmRemove}
+        />
       </DialogContent>
     </Dialog>
   );

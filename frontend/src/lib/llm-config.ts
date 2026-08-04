@@ -1,18 +1,15 @@
 /**
- * LLM 配置管理 — 通过 Tauri invoke 读写 _data/config.json
+ * LLM 配置管理 — 通过 Tauri invoke 读写数据目录 config.json
+ * v0.2（B5 收尾）：工具管理改走 hub_*_tool 命令，此处只管 LLM。
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import type { MaskedConfig, ScanPathItem } from "./api";
+import type { MaskedConfig } from "./api";
 
 export interface LLMConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-}
-
-export interface ScanPathConfig {
-  scanPaths: ScanPathItem[];
 }
 
 export const LLM_DEFAULTS = {
@@ -26,10 +23,10 @@ const DEFAULT_LLM: LLMConfig = {
   model: LLM_DEFAULTS.model,
 };
 
-let cachedConfig: (LLMConfig & ScanPathConfig & { hasKey: boolean; pathExists: boolean[] }) | null = null;
+let cachedConfig: (LLMConfig & { hasKey: boolean }) | null = null;
 
 /** 从 Rust 端加载配置 */
-export async function loadLLMConfig(): Promise<LLMConfig & ScanPathConfig & { hasKey: boolean; pathExists: boolean[] }> {
+export async function loadLLMConfig(): Promise<LLMConfig & { hasKey: boolean }> {
   try {
     // load_config 返回脱敏 key（仅用于"是否已配置"指示与 base_url/model），
     // 实际发请求需明文 key，故并行取 get_llm_api_key。
@@ -41,13 +38,11 @@ export async function loadLLMConfig(): Promise<LLMConfig & ScanPathConfig & { ha
       apiKey: rawKey,
       baseUrl: cfg.llm.base_url,
       model: cfg.llm.model,
-      scanPaths: cfg.scan_paths,
       hasKey: cfg._has_key,
-      pathExists: cfg.path_exists ?? [],
     };
     return cachedConfig;
   } catch {
-    return { ...DEFAULT_LLM, scanPaths: [], hasKey: false, pathExists: [] };
+    return { ...DEFAULT_LLM, hasKey: false };
   }
 }
 
@@ -63,16 +58,12 @@ export function getLLMConfig(): LLMConfig {
   return DEFAULT_LLM;
 }
 
-/** 保存配置到 Rust 端 */
-export async function saveLLMConfig(
-  llm: LLMConfig,
-  scanPaths: ScanPathItem[]
-): Promise<void> {
+/** 保存配置到 Rust 端（仅 LLM；tools 不在本通道） */
+export async function saveLLMConfig(llm: LLMConfig): Promise<void> {
   await invoke("save_config", {
-    scanPaths,
     llmApiKey: llm.apiKey,
     llmBaseUrl: llm.baseUrl,
     llmModel: llm.model,
   });
-  cachedConfig = { ...llm, scanPaths, hasKey: !!llm.apiKey, pathExists: scanPaths.map(() => true) };
+  cachedConfig = { ...llm, hasKey: !!llm.apiKey };
 }

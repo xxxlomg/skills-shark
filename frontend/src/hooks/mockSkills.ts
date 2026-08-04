@@ -1,4 +1,4 @@
-import type { PackInfo } from "@/lib/api";
+import type { PackInfo, ToolInfo, LinkStatus } from "@/lib/api";
 import type { Skill } from "./useSkills";
 
 /**
@@ -83,6 +83,43 @@ export const MOCK_PACKS: PackInfo[] = [
     overview: "浏览器连接、技能沉淀与定时任务三件套，开箱即用的 OpenCode 增强包。",
     summary_source: "static",
     skill_names: ["browser-cdp", "make-skill", "cron-job"],
+  },
+];
+
+/** mock 工具注册表（可变数组：CRUD mock 直接增删改，浏览器里走完管理闭环） */
+export const MOCK_TOOLS: ToolInfo[] = [
+  { id: "builtin", name: "builtin", builtin: true, app_owned: true, enabled: true, linkable: false, paths: [], path_exists: [], link_count: 0 },
+  { id: "claude-code", name: "Claude Code", builtin: true, app_owned: false, enabled: true, linkable: true, paths: ["~/.claude/skills"], path_exists: [true], link_count: 1 },
+  { id: "codex", name: "Codex CLI", builtin: true, app_owned: false, enabled: true, linkable: true, paths: ["$CODEX_HOME/skills", "~/.codex/skills", "~/.agents/skills"], path_exists: [false, true, false], link_count: 1 },
+  { id: "cursor", name: "Cursor", builtin: true, app_owned: false, enabled: false, linkable: true, paths: ["~/.cursor/skills"], path_exists: [false], link_count: 0 },
+  { id: "opencode", name: "OpenCode", builtin: true, app_owned: false, enabled: true, linkable: true, paths: ["~/.opencode/skills", "~/.config/opencode/skills"], path_exists: [true, false], link_count: 0 },
+  { id: "custom-my-lab", name: "My Lab", builtin: false, app_owned: false, enabled: true, linkable: true, paths: ["D:\\vault\\skills"], path_exists: [true], link_count: 0 },
+  { id: "imported", name: "导入", builtin: true, app_owned: true, enabled: true, linkable: false, paths: [], path_exists: [], link_count: 0 },
+];
+
+/** mock 引用台账（Hub 页与 wizard 落链后的可见样本） */
+export const MOCK_LINKS: LinkStatus[] = [
+  {
+    id: "mock-link-1",
+    skill_name: "code-review",
+    source: "D:\\vault\\skills\\code-review",
+    target: "C:\\Users\\mock\\.claude\\skills\\code-review",
+    target_tool: "claude-code",
+    mode: "link",
+    created_at: "2026-08-04T12:00:00Z",
+    health: "normal",
+    detail: "",
+  },
+  {
+    id: "mock-link-2",
+    skill_name: "shell-master",
+    source: "D:\\vault\\skills\\shell-master",
+    target: "C:\\Users\\mock\\.codex\\skills\\shell-master",
+    target_tool: "codex",
+    mode: "copy",
+    created_at: "2026-08-04T13:00:00Z",
+    health: "normal",
+    detail: "",
   },
 ];
 

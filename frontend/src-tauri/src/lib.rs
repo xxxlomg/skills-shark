@@ -5,6 +5,7 @@ mod import;
 mod pack;
 mod scanner;
 mod translations;
+mod validate;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,6 +15,8 @@ pub fn run() {
         .setup(|app| {
             // PLAN-04：数据目录外部化（AppData）+ 旧 _data 一次性迁移
             config::init_data_dir(app.handle());
+            // PLAN-06 §7.2：tmp/ 是 App 私有启动即清区，不放任何持久数据
+            config::cleanup_tmp_dir();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -25,13 +28,16 @@ pub fn run() {
             commands::get_llm_api_key,
             commands::save_config,
             commands::sync_deleted,
-            commands::detect_paths,
             commands::hub_linkable_tools,
             commands::hub_link_skill,
             commands::hub_unlink_skill,
             commands::hub_convert_to_copy,
             commands::hub_links_status,
             commands::hub_rescan,
+            commands::hub_list_tools,
+            commands::hub_add_tool,
+            commands::hub_update_tool,
+            commands::hub_remove_tool,
             commands::preview_zip_import,
             commands::commit_zip_import,
             commands::preview_url_import,
@@ -42,6 +48,7 @@ pub fn run() {
             commands::pack_import,
             commands::pack_install,
             commands::pack_delete,
+            commands::skill_validate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

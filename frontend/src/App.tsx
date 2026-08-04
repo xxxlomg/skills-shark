@@ -137,6 +137,12 @@ function App() {
     setHubToken((t) => t + 1);
   }, [refresh]);
 
+  // 设置页工具管理改动（启停/增删/删带引用工具）同样要刷 Hub 台账
+  const handleSettingsSaved = useCallback(() => {
+    refresh();
+    setHubToken((t) => t + 1);
+  }, [refresh]);
+
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
   }, []);
@@ -449,7 +455,7 @@ function App() {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        onSaved={refresh}
+        onSaved={handleSettingsSaved}
       />
 
       <CommandSearch

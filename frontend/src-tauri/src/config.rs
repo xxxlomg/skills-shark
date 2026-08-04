@@ -428,6 +428,134 @@ fn ensure_app_owned_entries(tools: &mut Vec<ToolEntry>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// v0.2（B5 收尾）工具 CRUD：自定义工具增删改（PLAN-06 §2.6）
+// 链接检查（删除前名下台账）在 commands 层做——config 不依赖 hub。
+// ---------------------------------------------------------------------------
+
+/// 自定义工具 id：`custom-<slug>`；slug 为空落 `custom-tool`；碰撞追加 -2/-3
+fn custom_tool_id(tools: &[ToolEntry], name: &str) -> String {
+    let slug = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let base = if slug.is_empty() { "tool".to_string() } else { slug };
+    let mut id = format!("custom-{}", base);
+    let mut n = 2;
+    while tools.iter().any(|t| t.id == id) {
+        id = format!("custom-{}-{}", base, n);
+        n += 1;
+    }
+    id
+}
+
+fn validate_tool_paths(paths: &[String]) -> Result<Vec<String>, String> {
+    let cleaned: Vec<String> = paths
+        .iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        return Err("至少需要一个扫描路径".to_string());
+    }
+    Ok(cleaned)
+}
+
+/// 新增自定义工具（builtin=false / linkable=true / enabled=true）
+pub fn add_tool(
+    tools: &mut Vec<ToolEntry>,
+    name: &str,
+    paths: &[String],
+) -> Result<ToolEntry, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("工具名称不能为空".to_string());
+    }
+    if tools.iter().any(|t| t.name == name) {
+        return Err(format!("已存在同名工具：{}", name));
+    }
+    let entry = ToolEntry {
+        id: custom_tool_id(tools, name),
+        name: name.to_string(),
+        paths: validate_tool_paths(paths)?,
+        builtin: false,
+        enabled: true,
+        linkable: true,
+        app_owned: false,
+    };
+    tools.push(entry.clone());
+    Ok(entry)
+}
+
+/// 更新工具：自定义工具可改 name/paths；任意工具可改 enabled。
+/// builtin/app_owned 的 name/paths 修改请求被静默忽略（注册表与自有源不可改）。
+pub fn update_tool(
+    tools: &mut Vec<ToolEntry>,
+    id: &str,
+    name: Option<&str>,
+    paths: Option<&[String]>,
+    enabled: Option<bool>,
+) -> Result<ToolEntry, String> {
+    let pos = tools
+        .iter()
+        .position(|t| t.id == id)
+        .ok_or_else(|| format!("工具不存在：{}", id))?;
+    if let Some(n) = name {
+        if !tools[pos].builtin {
+            let n = n.trim();
+            if n.is_empty() {
+                return Err("工具名称不能为空".to_string());
+            }
+            if tools.iter().any(|t| t.id != id && t.name == n) {
+                return Err(format!("已存在同名工具：{}", n));
+            }
+            tools[pos].name = n.to_string();
+        }
+    }
+    if let Some(p) = paths {
+        if !tools[pos].app_owned {
+            tools[pos].paths = validate_tool_paths(p)?;
+        }
+    }
+    if let Some(e) = enabled {
+        tools[pos].enabled = e;
+    }
+    Ok(tools[pos].clone())
+}
+
+/// 删除自定义工具；builtin/app_owned 一律拒绝（只能禁用）
+pub fn remove_tool(tools: &mut Vec<ToolEntry>, id: &str) -> Result<ToolEntry, String> {
+    let pos = tools
+        .iter()
+        .position(|t| t.id == id)
+        .ok_or_else(|| format!("工具不存在：{}", id))?;
+    if tools[pos].builtin || tools[pos].app_owned {
+        return Err("内置工具不能删除，只能禁用".to_string());
+    }
+    Ok(tools.remove(pos))
+}
+
+/// 启动即清私有暂存区（PLAN-06 §7.2：tmp/ 不放任何持久数据）
+pub fn cleanup_tmp_dir() {
+    let dir = get_data_dir().join("tmp");
+    if dir.is_dir() {
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => debug_log(&format!("startup: 已清空 tmp 目录 {}", dir.display())),
+            Err(e) => debug_log(&format!(
+                "startup: 清空 tmp 目录失败 {}: {}",
+                dir.display(),
+                e
+            )),
+        }
+    }
+}
+
 /// v0.1 scan_paths → v0.2 tools 迁移（幂等：load 侧仅在 tools 缺失时调用）。
 /// 语义：同 label 多行合并为一个 tool（候选级开关坍缩为工具级，OR 语义）；
 /// 已知 label 的非标准路径作为附加候选保留（不丢用户自定义落点）。
@@ -540,154 +668,10 @@ pub fn scan_targets_from_tools(tools: &[ToolEntry]) -> Vec<ScanTarget> {
     out
 }
 
-/// 前端过渡视图（MaskedConfig.scan_paths 派生源）：
-/// - app_owned：恒显示（路径动态解析，存在性由 path_exists 表达）
-/// - 注册表工具：仅当有候选目录存在时显示其存在的候选（含 disabled 行，供重新启用）
-/// - 自定义工具：恒显示其存储路径
-pub fn config_view_from_tools(tools: &[ToolEntry]) -> Vec<ScanPathItem> {
-    let mut out = Vec::new();
-    for tool in tools {
-        if tool.app_owned {
-            if let Some(p) = app_owned_path(&tool.id) {
-                out.push(ScanPathItem {
-                    path: p.to_string_lossy().to_string(),
-                    label: tool.name.clone(),
-                    enabled: tool.enabled,
-                });
-            }
-            continue;
-        }
-        if tool.builtin {
-            let mut seen = std::collections::HashSet::new();
-            for c in &tool.paths {
-                if let Some(p) = expand_path(c) {
-                    if p.is_dir() && seen.insert(norm_for_compare(&p)) {
-                        out.push(ScanPathItem {
-                            path: p.to_string_lossy().to_string(),
-                            label: tool.name.clone(),
-                            enabled: tool.enabled,
-                        });
-                    }
-                }
-            }
-            continue;
-        }
-        for p in &tool.paths {
-            out.push(ScanPathItem {
-                path: p.clone(),
-                label: tool.name.clone(),
-                enabled: tool.enabled,
-            });
-        }
-    }
-    out
-}
-
-/// 前端保存反向合并（过渡期桥接）：incoming scan_paths 行 → tools 更新。
-/// - app_owned 行：在 → enabled 随行；不在（用户删行）→ enabled=false（条目保留）
-/// - 注册表工具：路径命中其展开候选或 label 同名 → 更新 enabled；新增路径吸收为候选；
-///   无任何行且此前有存在候选（用户删行）→ enabled=false；隐藏工具（无存在候选）不动
-/// - 其余行 → 自定义工具（按 label 合并），整段重建
-pub fn apply_scan_paths_edit(current: &[ToolEntry], items: &[ScanPathItem]) -> Vec<ToolEntry> {
-    let mut matched = vec![false; items.len()];
-    let mut result: Vec<ToolEntry> = Vec::new();
-
-    for tool in current {
-        let mut t = tool.clone();
-        if tool.app_owned {
-            let rows: Vec<usize> = items
-                .iter()
-                .enumerate()
-                .filter(|(_, sp)| sp.label == tool.name)
-                .map(|(i, _)| i)
-                .collect();
-            if rows.is_empty() {
-                t.enabled = false; // 用户删行：禁用但保留条目（应用不变量）
-            } else {
-                t.enabled = rows.iter().any(|i| items[*i].enabled);
-                for i in rows {
-                    matched[i] = true;
-                }
-            }
-            result.push(t);
-            continue;
-        }
-        if tool.builtin {
-            let candidates: Vec<String> = tool
-                .paths
-                .iter()
-                .filter_map(|c| expand_path(c))
-                .map(|p| norm_for_compare(&p))
-                .collect();
-            let rows: Vec<usize> = items
-                .iter()
-                .enumerate()
-                .filter(|(_, sp)| {
-                    sp.label == tool.name
-                        || candidates.contains(&norm_for_compare(std::path::Path::new(&sp.path)))
-                })
-                .map(|(i, _)| i)
-                .collect();
-            if rows.is_empty() {
-                // 无行：此前有存在候选 = 用户删行 → 禁用；隐藏工具不动
-                let had_existing = tool.paths.iter().any(|c| {
-                    expand_path(c).map(|p| p.is_dir()).unwrap_or(false)
-                });
-                if had_existing {
-                    t.enabled = false;
-                }
-            } else {
-                t.enabled = rows.iter().any(|i| items[*i].enabled);
-                for i in &rows {
-                    push_path_if_new(&mut t.paths, &items[*i].path);
-                    matched[*i] = true;
-                }
-            }
-            result.push(t);
-            continue;
-        }
-        // 自定义工具在下方由未匹配行重建，此处丢弃旧条目
-    }
-
-    for (i, sp) in items.iter().enumerate() {
-        if matched[i] {
-            continue;
-        }
-        let migrated = migrate_scan_paths_to_tools(std::slice::from_ref(sp));
-        for mt in migrated {
-            match result.iter_mut().find(|t| t.id == mt.id) {
-                Some(t) => {
-                    t.enabled = t.enabled || mt.enabled;
-                    for p in mt.paths {
-                        push_path_if_new(&mut t.paths, &p);
-                    }
-                }
-                None => result.push(mt),
-            }
-        }
-    }
-    result
-}
-
-/// v0.2 detect：返回「被禁用的注册表工具中仍存在的候选」，供设置页重新启用。
-/// （v0.1 语义「检测未配置路径」已消亡——注册表工具永远在配置中。）
-pub fn detect_unconfigured_paths(tools: &[ToolEntry]) -> Vec<ScanPathItem> {
-    let mut out = Vec::new();
-    for tool in tools.iter().filter(|t| t.builtin && !t.app_owned && !t.enabled) {
-        for c in &tool.paths {
-            if let Some(p) = expand_path(c) {
-                if p.is_dir() {
-                    out.push(ScanPathItem {
-                        path: p.to_string_lossy().to_string(),
-                        label: tool.name.clone(),
-                        enabled: true,
-                    });
-                }
-            }
-        }
-    }
-    out
-}
+// v0.2（B5 收尾）：scan_paths 前端桥接（config_view_from_tools /
+// apply_scan_paths_edit / detect_unconfigured_paths）已按计划拆除——
+// 设置页改走 hub_list_tools + 工具 CRUD 命令（PLAN-06 §2.6/§2.10）。
+// config.json 的旧 scan_paths 字段仍由 RawConfig 读兼容（迁移后写时丢弃）。
 
 // ---------------------------------------------------------------------------
 // 读写
@@ -760,14 +744,11 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| e.to_string())
 }
 
-/// 返回脱敏后的配置（供前端展示）
+/// 返回脱敏后的配置（供前端展示；工具清单走 hub_list_tools）
 #[derive(Debug, Clone, Serialize)]
 pub struct MaskedConfig {
-    pub scan_paths: Vec<ScanPathItem>,
     pub llm: MaskedLLM,
     pub _has_key: bool,
-    /// 与 scan_paths 一一对应，标记目录是否存在
-    pub path_exists: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -787,21 +768,13 @@ pub fn load_masked_config() -> MaskedConfig {
     } else {
         String::new()
     };
-    // 过渡期前端视图：由 tools 派生（B5 前端改造后此桥接移除）
-    let scan_paths = config_view_from_tools(&cfg.tools);
-    let path_exists = scan_paths
-        .iter()
-        .map(|sp| std::path::Path::new(&sp.path).is_dir())
-        .collect();
     MaskedConfig {
-        scan_paths,
         llm: MaskedLLM {
             api_key: masked_key,
             base_url: cfg.llm.base_url,
             model: cfg.llm.model,
         },
         _has_key: !cfg.llm.api_key.is_empty(),
-        path_exists,
     }
 }
 
@@ -929,46 +902,74 @@ mod tests {
         assert_eq!(tools[0].id, "builtin", "builtin 恒在首位（扫描顺序锚点，B4 代表选取依赖）");
     }
 
-    // ---- apply_scan_paths_edit（前端保存反向合并）----
+    // ---- 工具 CRUD（B5 收尾，PLAN-06 §2.6）----
 
     #[test]
-    fn apply_edit_toggle_and_delete_semantics() {
-        let current = default_tools();
-        // 前端视图（模拟 config_view_from_tools 的输出 + 用户操作）：
-        let claude_dir = dirs::home_dir().unwrap().join(".claude/skills");
-        std::fs::create_dir_all(&claude_dir).ok(); // 测试机可能没有，创建临时目录兜底
-        let view = config_view_from_tools(&current);
-        assert!(view.iter().any(|sp| sp.label == "builtin"));
-
-        // 用户禁用 builtin 行、删除 Claude 行（若存在）
-        let edited: Vec<ScanPathItem> = view
-            .iter()
-            .filter(|sp| sp.label != "Claude Code")
-            .map(|sp| ScanPathItem {
-                enabled: if sp.label == "builtin" { false } else { sp.enabled },
-                ..sp.clone()
-            })
-            .collect();
-        let result = apply_scan_paths_edit(&current, &edited);
-        let builtin = result.iter().find(|t| t.id == "builtin").unwrap();
-        assert!(!builtin.enabled, "禁用行 → tool.enabled=false");
-        let claude = result.iter().find(|t| t.id == "claude-code").unwrap();
-        if claude_dir.is_dir() {
-            assert!(!claude.enabled, "删除存在的行 → 禁用");
-        }
-        assert!(result.iter().any(|t| t.id == "imported"), "应用自有源条目永不丢失");
+    fn add_tool_creates_linkable_custom_entry() {
+        let mut tools = default_tools();
+        let before = tools.len();
+        let t = add_tool(&mut tools, "My Lab", &[r"D:\lab\skills".to_string()]).unwrap();
+        assert_eq!(tools.len(), before + 1);
+        assert_eq!(t.id, "custom-my-lab");
+        assert!(!t.builtin && !t.app_owned && t.linkable && t.enabled);
+        assert_eq!(t.paths, vec![r"D:\lab\skills".to_string()]);
     }
 
     #[test]
-    fn apply_edit_new_custom_row_creates_tool() {
-        let current = default_tools();
-        let items = vec![sp(r"E:\new\skills", "新工具", true)];
-        let result = apply_scan_paths_edit(&current, &items);
-        let custom = result.iter().find(|t| t.name == "新工具");
-        assert!(custom.is_some(), "未匹配行 → 新自定义工具");
-        let c = custom.unwrap();
-        assert!(!c.builtin && c.linkable);
-        assert_eq!(c.paths, vec![r"E:\new\skills".to_string()]);
+    fn add_tool_rejects_empty_name_or_paths() {
+        let mut tools = default_tools();
+        assert!(add_tool(&mut tools, "  ", &["D:\\x".to_string()]).is_err());
+        assert!(add_tool(&mut tools, "X", &[]).is_err());
+        assert!(add_tool(&mut tools, "X", &["   ".to_string()]).is_err());
+        assert!(add_tool(&mut tools, "Claude Code", &["D:\\x".to_string()]).is_err(), "同名拒绝");
+    }
+
+    #[test]
+    fn add_tool_slug_collision_gets_suffix() {
+        let mut tools = default_tools();
+        let a = add_tool(&mut tools, "My Lab", &["D:\\a".to_string()]).unwrap();
+        let b = add_tool(&mut tools, "my-lab", &["D:\\b".to_string()]).unwrap();
+        assert_eq!(a.id, "custom-my-lab");
+        assert_eq!(b.id, "custom-my-lab-2", "slug 碰撞追加序号");
+    }
+
+    #[test]
+    fn update_tool_enabled_paths_and_rename() {
+        let mut tools = default_tools();
+        add_tool(&mut tools, "Lab", &["D:\\a".to_string()]).unwrap();
+        let t = update_tool(
+            &mut tools,
+            "custom-lab",
+            Some("Lab2"),
+            Some(&["D:\\b".to_string()]),
+            Some(false),
+        )
+        .unwrap();
+        assert_eq!(t.name, "Lab2");
+        assert_eq!(t.paths, vec![r"D:\b".to_string()]);
+        assert!(!t.enabled);
+        // builtin 工具只允许改 enabled
+        let claude = update_tool(&mut tools, "claude-code", Some("Hack"), None, Some(false)).unwrap();
+        assert_eq!(claude.name, "Claude Code", "builtin 名称不可改");
+        assert!(!claude.enabled);
+    }
+
+    #[test]
+    fn update_tool_missing_id_errors() {
+        let mut tools = default_tools();
+        assert!(update_tool(&mut tools, "nope", None, None, Some(true)).is_err());
+    }
+
+    #[test]
+    fn remove_tool_rejects_builtin_keeps_custom() {
+        let mut tools = default_tools();
+        assert!(remove_tool(&mut tools, "builtin").is_err());
+        assert!(remove_tool(&mut tools, "claude-code").is_err());
+        assert!(remove_tool(&mut tools, "imported").is_err());
+        add_tool(&mut tools, "Lab", &["D:\\a".to_string()]).unwrap();
+        let removed = remove_tool(&mut tools, "custom-lab").unwrap();
+        assert_eq!(removed.id, "custom-lab");
+        assert!(remove_tool(&mut tools, "custom-lab").is_err(), "二次删除报错");
     }
 
     #[test]

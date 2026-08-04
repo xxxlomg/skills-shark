@@ -4,17 +4,17 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { isMockMode, MOCK_PACKS, MOCK_RAW } from "@/hooks/mockSkills";
+import {
+  isMockMode,
+  MOCK_PACKS,
+  MOCK_RAW,
+  MOCK_TOOLS,
+  MOCK_LINKS,
+} from "@/hooks/mockSkills";
 
 // ---------------------------------------------------------------------------
 // 类型（与 Rust 端对齐）
 // ---------------------------------------------------------------------------
-
-export interface ScanPathItem {
-  path: string;
-  label: string;
-  enabled: boolean;
-}
 
 export interface Skill {
   id: string;
@@ -52,10 +52,8 @@ export interface MaskedLLM {
 }
 
 export interface MaskedConfig {
-  scan_paths: ScanPathItem[];
   llm: MaskedLLM;
   _has_key: boolean;
-  path_exists: boolean[];
 }
 
 // ---------------------------------------------------------------------------
@@ -99,15 +97,13 @@ export function loadConfig(): Promise<MaskedConfig> {
   return invoke<MaskedConfig>("load_config");
 }
 
-/** 保存配置 */
+/** 保存 LLM 配置（v0.2 B5 收尾：tools 走 hub_*_tool 命令，不再经此通道） */
 export function saveConfig(params: {
-  scanPaths: ScanPathItem[];
   llmApiKey: string;
   llmBaseUrl: string;
   llmModel: string;
 }): Promise<void> {
   return invoke("save_config", {
-    scanPaths: params.scanPaths,
     llmApiKey: params.llmApiKey,
     llmBaseUrl: params.llmBaseUrl,
     llmModel: params.llmModel,
@@ -117,11 +113,6 @@ export function saveConfig(params: {
 /** 同步删除状态 + 返回完整列表 */
 export function syncDeleted(currentIds: string[]): Promise<Skill[]> {
   return invoke<Skill[]>("sync_deleted", { currentIds });
-}
-
-/** 检测磁盘上存在但尚未配置的默认路径 */
-export function detectPaths(): Promise<ScanPathItem[]> {
-  return invoke<ScanPathItem[]>("detect_paths");
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +158,18 @@ export interface LinkStatus extends HubLink {
 
 /** linkable 目标工具清单 */
 export function hubLinkableTools(): Promise<LinkableTool[]> {
-  if (isMockMode()) return Promise.resolve([]);
+  if (isMockMode()) {
+    return Promise.resolve(
+      MOCK_TOOLS.filter((t) => !t.app_owned && t.linkable && t.enabled).map(
+        (t) => ({
+          id: t.id,
+          name: t.name,
+          enabled: t.enabled,
+          has_existing_dir: t.path_exists.some(Boolean),
+        }),
+      ),
+    );
+  }
   return invoke<LinkableTool[]>("hub_linkable_tools");
 }
 
@@ -177,28 +179,192 @@ export function hubLinkSkill(params: {
   targetToolId: string;
   mode: LinkMode;
 }): Promise<HubLink> {
+  if (isMockMode()) {
+    const tool = MOCK_TOOLS.find((t) => t.id === params.targetToolId);
+    if (!tool) return Promise.reject(new Error("目标工具不存在"));
+    const name = params.sourcePath.split(/[\\/]/).filter(Boolean).pop() ?? "skill";
+    const ledgerMode: LedgerMode = params.mode === "link" ? "link" : "copy";
+    const link: LinkStatus = {
+      id: `mock-link-${Date.now()}`,
+      skill_name: name,
+      source: params.sourcePath,
+      target: `C:\\Users\\mock\\${tool.id}\\skills\\${name}`,
+      target_tool: tool.id,
+      mode: ledgerMode,
+      created_at: new Date().toISOString(),
+      health: "normal",
+      detail: "",
+    };
+    MOCK_LINKS.push(link);
+    tool.link_count += 1;
+    return Promise.resolve(link);
+  }
   return invoke<HubLink>("hub_link_skill", params);
 }
 
 /** 解除引用：link → 只移除 junction 本体；copy → 只清账本 */
 export function hubUnlinkSkill(linkId: string): Promise<HubLink> {
+  if (isMockMode()) {
+    const i = MOCK_LINKS.findIndex((l) => l.id === linkId);
+    if (i < 0) return Promise.reject(new Error("引用记录不存在"));
+    const [link] = MOCK_LINKS.splice(i, 1);
+    const tool = MOCK_TOOLS.find((t) => t.id === link.target_tool);
+    if (tool && tool.link_count > 0) tool.link_count -= 1;
+    return Promise.resolve(link);
+  }
   return invoke<HubLink>("hub_unlink_skill", { linkId });
 }
 
 /** link → copy 转换：复制实体替换 junction（删原件前救命通道） */
 export function hubConvertToCopy(linkId: string): Promise<HubLink> {
+  if (isMockMode()) {
+    const link = MOCK_LINKS.find((l) => l.id === linkId);
+    if (!link) return Promise.reject(new Error("引用记录不存在"));
+    link.mode = "copy";
+    return Promise.resolve(link);
+  }
   return invoke<HubLink>("hub_convert_to_copy", { linkId });
 }
 
 /** 全量诊断：账本逐条对账（normal/missing/orphaned） */
 export function hubLinksStatus(): Promise<LinkStatus[]> {
-  if (isMockMode()) return Promise.resolve([]);
+  if (isMockMode()) return Promise.resolve([...MOCK_LINKS]);
   return invoke<LinkStatus[]>("hub_links_status");
 }
 
 /** link/unlink 后刷新技能列表（等价 scan_skills，含账本 join） */
 export function hubRescan(): Promise<Skill[]> {
   return invoke<Skill[]>("hub_rescan");
+}
+
+// ---------------------------------------------------------------------------
+// 工具管理（PLAN-06 §2.6/§2.10，B5 收尾）：设置页「工具」面板
+// ---------------------------------------------------------------------------
+
+/** 工具全量信息（与 Rust ToolInfo 对齐） */
+export interface ToolInfo {
+  id: string;
+  name: string;
+  /** 注册表/应用自有工具：名称路径不可改，只能禁用 */
+  builtin: boolean;
+  /** 应用自有来源（builtin/imported/authored）：不可作引用落点 */
+  app_owned: boolean;
+  enabled: boolean;
+  linkable: boolean;
+  /** 候选路径原样（含 ~ / $VAR 模板） */
+  paths: string[];
+  /** 各候选展开后是否存在（与 paths 一一对应） */
+  path_exists: boolean[];
+  /** 名下引用记录数（links.json 台账） */
+  link_count: number;
+}
+
+/** 全量工具列表（含 app_owned / 禁用项，供设置页管理） */
+export function hubListTools(): Promise<ToolInfo[]> {
+  if (isMockMode()) return Promise.resolve([...MOCK_TOOLS]);
+  return invoke<ToolInfo[]>("hub_list_tools");
+}
+
+/** 新增自定义工具（builtin=false / linkable=true） */
+export function hubAddTool(params: {
+  name: string;
+  paths: string[];
+}): Promise<ToolInfo> {
+  if (isMockMode()) {
+    const name = params.name.trim();
+    if (!name) return Promise.reject(new Error("工具名称不能为空"));
+    if (MOCK_TOOLS.some((t) => t.name === name)) {
+      return Promise.reject(new Error(`已存在同名工具：${name}`));
+    }
+    const paths = params.paths.map((p) => p.trim()).filter(Boolean);
+    if (paths.length === 0) {
+      return Promise.reject(new Error("至少需要一个扫描路径"));
+    }
+    const slug =
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "tool";
+    let id = `custom-${slug}`;
+    let n = 2;
+    while (MOCK_TOOLS.some((t) => t.id === id)) {
+      id = `custom-${slug}-${n}`;
+      n += 1;
+    }
+    const tool: ToolInfo = {
+      id,
+      name,
+      builtin: false,
+      app_owned: false,
+      enabled: true,
+      linkable: true,
+      paths,
+      path_exists: paths.map(() => true),
+      link_count: 0,
+    };
+    MOCK_TOOLS.push(tool);
+    return Promise.resolve(tool);
+  }
+  return invoke<ToolInfo>("hub_add_tool", params);
+}
+
+/** 更新工具：自定义可改 name/paths；任意可改 enabled（未传的字段不变） */
+export function hubUpdateTool(params: {
+  id: string;
+  name?: string;
+  paths?: string[];
+  enabled?: boolean;
+}): Promise<ToolInfo> {
+  if (isMockMode()) {
+    const tool = MOCK_TOOLS.find((t) => t.id === params.id);
+    if (!tool) return Promise.reject(new Error(`工具不存在：${params.id}`));
+    if (params.name !== undefined && !tool.builtin) {
+      const n = params.name.trim();
+      if (!n) return Promise.reject(new Error("工具名称不能为空"));
+      tool.name = n;
+    }
+    if (params.paths !== undefined && !tool.app_owned) {
+      tool.paths = params.paths;
+      tool.path_exists = params.paths.map(() => true);
+    }
+    if (params.enabled !== undefined) tool.enabled = params.enabled;
+    return Promise.resolve(tool);
+  }
+  const args: Record<string, unknown> = { id: params.id };
+  if (params.name !== undefined) args.name = params.name;
+  if (params.paths !== undefined) args.paths = params.paths;
+  if (params.enabled !== undefined) args.enabled = params.enabled;
+  return invoke<ToolInfo>("hub_update_tool", args);
+}
+
+/** 删除自定义工具；force=true 时连带移除名下账本记录 */
+export function hubRemoveTool(params: {
+  id: string;
+  force: boolean;
+}): Promise<void> {
+  if (isMockMode()) {
+    const i = MOCK_TOOLS.findIndex((t) => t.id === params.id);
+    if (i < 0) return Promise.reject(new Error(`工具不存在：${params.id}`));
+    const tool = MOCK_TOOLS[i];
+    if (tool.builtin || tool.app_owned) {
+      return Promise.reject(new Error("内置工具不能删除，只能禁用"));
+    }
+    if (tool.link_count > 0 && !params.force) {
+      return Promise.reject(
+        new Error(
+          `该工具名下还有 ${tool.link_count} 条引用记录，请先在 Hub 页解除引用，或确认「一并移除记录」后重试`,
+        ),
+      );
+    }
+    if (tool.link_count > 0) {
+      for (let j = MOCK_LINKS.length - 1; j >= 0; j--) {
+        if (MOCK_LINKS[j].target_tool === params.id) MOCK_LINKS.splice(j, 1);
+      }
+    }
+    MOCK_TOOLS.splice(i, 1);
+    return Promise.resolve();
+  }
+  return invoke("hub_remove_tool", params);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +454,40 @@ export function packInstall(id: string): Promise<number> {
 
 export function packDelete(id: string): Promise<void> {
   return invoke("pack_delete", { id });
+}
+
+// ---------------------------------------------------------------------------
+// 模块 C：规范校验（PLAN-06 §3）
+// ---------------------------------------------------------------------------
+
+export type ValidateMode = "strict" | "diagnostic";
+export type ValidateSeverity = "error" | "warn" | "info";
+export type ValidateVerdict = "pass" | "warn" | "fail";
+
+export interface ValidationIssue {
+  rule_id: string;
+  severity: ValidateSeverity;
+  message: string;
+  path: string;
+  hint: string;
+}
+
+export interface ValidationReport {
+  mode: ValidateMode;
+  passed: boolean;
+  issues: ValidationIssue[];
+  matrix: {
+    claude: { verdict: ValidateVerdict; notes: string[] };
+    codex: { verdict: ValidateVerdict; notes: string[] };
+  };
+}
+
+/** 校验任意技能目录；diagnostic 永不阻断，strict 为发布前闸 */
+export function skillValidate(
+  path: string,
+  mode: ValidateMode = "diagnostic"
+): Promise<ValidationReport> {
+  return invoke<ValidationReport>("skill_validate", { path, mode });
 }
 
 export type ImportSource =
