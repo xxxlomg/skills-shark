@@ -17,8 +17,12 @@ import {
   Check,
   Settings2,
   Link2,
+  Store,
+  GitBranch,
 } from "lucide-react";
 import { toast } from "sonner";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { isMockMode } from "@/hooks/mockSkills";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +46,14 @@ import {
   hubRemoveTool,
 } from "@/lib/api";
 import type { ToolInfo } from "@/lib/api";
+import {
+  repoSetup,
+  savePublishRepo,
+  gitStatus,
+} from "@/lib/api";
+import type { GitStatusInfo } from "@/lib/api";
+import { invoke } from "@tauri-apps/api/core";
+import type { MaskedConfig } from "@/lib/api";
 import { testLLMConnection } from "@/lib/translate-api";
 import { ACCENTS, getAccent, setAccent, type AccentId } from "@/lib/accent";
 
@@ -52,11 +64,12 @@ interface SettingsDialogProps {
   onSaved?: () => void;
 }
 
-type Section = "llm" | "tools" | "appearance";
+type Section = "llm" | "tools" | "repo" | "appearance";
 
 const SECTIONS: { id: Section; label: string; icon: typeof Key; hint: string }[] = [
   { id: "llm", label: "LLM 配置", icon: Key, hint: "翻译服务的密钥与端点" },
   { id: "tools", label: "工具", icon: FolderOpen, hint: "扫描来源与引用落点" },
+  { id: "repo", label: "技能仓库", icon: Store, hint: "发布用的本地仓库与远端（凭据走你自己的 git）" },
   { id: "appearance", label: "外观", icon: Palette, hint: "界面主题色" },
 ];
 
@@ -85,12 +98,31 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
   // 主题色预设
   const [accent, setAccentState] = useState<AccentId>(() => getAccent());
 
+  // 技能仓库（模块 A 发布侧，§1.3）
+  const [repoLocalPath, setRepoLocalPath] = useState("");
+  const [repoRemoteUrl, setRepoRemoteUrl] = useState("");
+  const [repoBusy, setRepoBusy] = useState(false);
+  const [repoStatus, setRepoStatus] = useState<GitStatusInfo | null>(null);
+
   // 加载配置
   useEffect(() => {
     if (!open) return;
     setLoaded(false);
-    Promise.all([loadLLMConfig(), hubListTools()])
-      .then(([config, toolList]) => {
+    const loadMasked = (): Promise<MaskedConfig> => {
+      if (isMockMode()) {
+        return Promise.resolve({
+          llm: { api_key: "", base_url: LLM_DEFAULTS.baseUrl, model: LLM_DEFAULTS.model },
+          _has_key: false,
+          publish_repo: {
+            local_path: "D:\\mock\\my-skill-repo",
+            remote_url: "https://github.com/mock/my-skill-repo.git",
+          },
+        });
+      }
+      return invoke<MaskedConfig>("load_config");
+    };
+    Promise.all([loadLLMConfig(), hubListTools(), loadMasked()])
+      .then(([config, toolList, masked]) => {
         if (config.hasKey) {
           setApiKey(config.apiKey);
           setHasExisting(true);
@@ -101,6 +133,13 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         setBaseUrl(config.baseUrl || LLM_DEFAULTS.baseUrl);
         setModel(config.model || LLM_DEFAULTS.model);
         setTools(toolList);
+        setRepoLocalPath(masked.publish_repo?.local_path ?? "");
+        setRepoRemoteUrl(masked.publish_repo?.remote_url ?? "");
+        if (masked.publish_repo) {
+          gitStatus().then(setRepoStatus).catch(() => setRepoStatus(null));
+        } else {
+          setRepoStatus(null);
+        }
       })
       .catch(() => {
         toast.error("加载配置失败");
@@ -238,6 +277,62 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
       setRemoveLoading(false);
     }
   }, [removing, refreshTools, onSaved]);
+
+  // ---- 技能仓库操作（模块 A 发布侧，§1.3/§1.11）----
+
+  const handleRepoPick = useCallback(async () => {
+    if (isMockMode()) {
+      toast.info("Mock 模式不支持选择文件夹，请直接输入路径");
+      return;
+    }
+    try {
+      const picked = await openFileDialog({ directory: true, multiple: false });
+      if (typeof picked === "string") setRepoLocalPath(picked);
+    } catch {
+      /* 用户取消 */
+    }
+  }, []);
+
+  const handleRepoSetup = useCallback(
+    async (initIfMissing: boolean) => {
+      const localPath = repoLocalPath.trim();
+      const remoteUrl = repoRemoteUrl.trim();
+      if (!localPath || !remoteUrl) {
+        toast.error("请填写本地路径与远端 URL");
+        return;
+      }
+      setRepoBusy(true);
+      try {
+        await repoSetup({ localPath, remoteUrl, initIfMissing });
+        await savePublishRepo(localPath, remoteUrl);
+        const status = await gitStatus();
+        setRepoStatus(status);
+        toast.success(
+          initIfMissing ? "仓库已初始化并保存配置" : "仓库校验通过，配置已保存"
+        );
+        onSaved?.();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "未知错误";
+        toast.error(`仓库设置失败：${msg}`);
+      } finally {
+        setRepoBusy(false);
+      }
+    },
+    [repoLocalPath, repoRemoteUrl, onSaved],
+  );
+
+  const handleRepoClear = useCallback(async () => {
+    try {
+      await savePublishRepo("", "");
+      setRepoLocalPath("");
+      setRepoRemoteUrl("");
+      setRepoStatus(null);
+      toast.success("仓库配置已清除");
+      onSaved?.();
+    } catch {
+      toast.error("清除失败");
+    }
+  }, [onSaved]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -501,6 +596,118 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                     {addingTool ? "添加中…" : "添加工具"}
                   </Button>
                 </div>
+              </>
+            )}
+
+            {/* 技能仓库（模块 A 发布侧） */}
+            {section === "repo" && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  发布 Pack 到你的「技能货架」仓库。凭据完全走你自己的 git 配置
+                  （SSH / credential manager），App 不碰任何凭据。
+                </p>
+
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    本地仓库路径
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="D:\my-skill-repo"
+                      value={repoLocalPath}
+                      onChange={(e) => setRepoLocalPath(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRepoPick}
+                      className="shrink-0"
+                    >
+                      选择…
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <GitBranch className="h-3.5 w-3.5" />
+                    远端 URL
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="https://github.com/you/my-skill-repo.git（仓库须已存在）"
+                    value={repoRemoteUrl}
+                    onChange={(e) => setRepoRemoteUrl(e.target.value)}
+                  />
+                  <p className="text-[11px] text-text-tertiary">
+                    App 不代建远程仓库：先去 GitHub/Gitee 建一个空仓库，把 URL 贴进来。
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => handleRepoSetup(true)}
+                    disabled={repoBusy || !loaded}
+                  >
+                    {repoBusy ? "处理中…" : "初始化新仓库"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRepoSetup(false)}
+                    disabled={repoBusy || !loaded}
+                  >
+                    校验已有仓库
+                  </Button>
+                  {repoStatus?.repo_configured && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRepoClear}
+                      disabled={repoBusy}
+                      className="ml-auto text-text-tertiary"
+                    >
+                      清除配置
+                    </Button>
+                  )}
+                </div>
+
+                {repoStatus?.repo_configured && (
+                  <div className="rounded-lg border border-stroke bg-glass-1 p-3 text-xs text-text-secondary space-y-1">
+                    <p className="flex items-center gap-1.5 font-medium text-foreground">
+                      <Store className="h-3.5 w-3.5 text-brand" />
+                      当前仓库状态
+                    </p>
+                    {repoStatus.repo_exists ? (
+                      <>
+                        <p>
+                          分支 <span className="font-mono">{repoStatus.branch}</span>
+                          {" · "}
+                          <span className="font-mono">
+                            {repoStatus.clean ? "工作区干净" : "有未提交改动"}
+                          </span>
+                          {repoStatus.ahead > 0 && ` · 领先远端 ${repoStatus.ahead} 个提交`}
+                          {repoStatus.behind > 0 && ` · 落后远端 ${repoStatus.behind} 个提交`}
+                        </p>
+                        <p className="text-text-tertiary font-mono break-all">
+                          {repoStatus.repo_path}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        配置的路径不存在或不是 git 仓库——点「初始化新仓库」修复
+                      </p>
+                    )}
+                  </div>
+                )}
               </>
             )}
 

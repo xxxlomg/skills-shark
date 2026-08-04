@@ -241,6 +241,16 @@ pub struct AppConfig {
     pub tools: Vec<ToolEntry>,
     #[serde(default = "default_llm")]
     pub llm: LLMConfig,
+    /// 模块 A 发布侧：「我的技能仓库」本地路径 + remote（PLAN-06 §1.3）
+    #[serde(default)]
+    pub publish_repo: Option<PublishRepo>,
+}
+
+/// 发布用技能仓库配置（无敏感字段：凭据完全走用户 git 环境，§1.3）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PublishRepo {
+    pub local_path: String,
+    pub remote_url: String,
 }
 
 /// 读兼容解析结构：区分「字段缺失」与「显式空数组」
@@ -251,6 +261,8 @@ struct RawConfig {
     scan_paths: Option<Vec<ScanPathItem>>,
     #[serde(default)]
     llm: Option<LLMConfig>,
+    #[serde(default)]
+    publish_repo: Option<PublishRepo>,
 }
 
 fn default_llm() -> LLMConfig {
@@ -711,10 +723,11 @@ pub fn load_config() -> AppConfig {
     };
 
     ensure_app_owned_entries(&mut tools);
+    let publish_repo = raw.as_ref().and_then(|r| r.publish_repo.clone());
     let llm = raw
         .and_then(|r| r.llm)
         .unwrap_or_else(default_llm);
-    let cfg = AppConfig { tools, llm };
+    let cfg = AppConfig { tools, llm, publish_repo };
     if migrated {
         let _ = save_config(&cfg); // 落盘固化迁移结果，下次启动走幂等路径
     }
@@ -749,6 +762,8 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
 pub struct MaskedConfig {
     pub llm: MaskedLLM,
     pub _has_key: bool,
+    /// 发布仓库配置（路径+URL，无敏感内容，原样返回）
+    pub publish_repo: Option<PublishRepo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -775,6 +790,7 @@ pub fn load_masked_config() -> MaskedConfig {
             model: cfg.llm.model,
         },
         _has_key: !cfg.llm.api_key.is_empty(),
+        publish_repo: cfg.publish_repo,
     }
 }
 

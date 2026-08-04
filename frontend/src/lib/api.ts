@@ -55,6 +55,8 @@ export interface MaskedLLM {
 export interface MaskedConfig {
   llm: MaskedLLM;
   _has_key: boolean;
+  /** 发布仓库配置（未设置为 null） */
+  publish_repo: { local_path: string; remote_url: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,12 +432,83 @@ export function packsList(): Promise<PackInfo[]> {
   return invoke<PackInfo[]>("packs_list");
 }
 
+/** C4：pack_create 校验门的结构化失败清单条目 */
+export interface SkillValidationFailure {
+  skill_path: string;
+  name: string;
+  issues: ValidationIssue[];
+}
+
+/** C4：pack_create 结构化错误（不再是字符串，catch 需按 kind 分流） */
+export type PackCreateError =
+  | { kind: "validation_failed"; message: string; failed: SkillValidationFailure[] }
+  | { kind: "message"; message: string };
+
+export function isPackCreateError(e: unknown): e is PackCreateError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "kind" in e &&
+    typeof (e as PackCreateError).message === "string"
+  );
+}
+
+/** 任意 pack 错误 → 人话文本（防 [object Object]） */
+export function packErrorText(e: unknown): string {
+  if (isPackCreateError(e)) return e.message;
+  return String(e);
+}
+
 export function packCreate(params: {
   name: string;
   ver: string;
   author: string;
   skills: PackSkillInput[];
+  /** C4 逃生门：带错强行打包，warnings 记入 pack.json */
+  force?: boolean;
 }): Promise<PackInfo> {
+  if (isMockMode()) {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        // 模拟 C4 校验门：包名含 "bad" → 严格校验拒绝（force 可过）
+        if (/bad/i.test(params.name) && !params.force) {
+          const sample = params.skills.slice(0, 2);
+          reject({
+            kind: "validation_failed",
+            message: `${sample.length} 个技能未通过严格校验，已拒绝打包`,
+            failed: sample.map((s) => ({
+              skill_path: s.source_path,
+              name: s.name,
+              issues: [
+                {
+                  rule_id: "FM-02",
+                  severity: "error",
+                  message: "description 为空（mock 校验门）",
+                  path: "SKILL.md",
+                  hint: "",
+                },
+              ],
+            })),
+          } satisfies PackCreateError);
+          return;
+        }
+        const info: PackInfo = {
+          id: `mock-pack-${Date.now().toString(16)}`,
+          name: params.name,
+          ver: params.ver,
+          author: params.author,
+          created_at: new Date().toISOString(),
+          skill_count: params.skills.length,
+          translated: params.skills.filter((s) => s.has_translation).length,
+          overview: `Mock 打包：${params.name}`,
+          summary_source: "static",
+          skill_names: params.skills.map((s) => s.name),
+        };
+        MOCK_PACKS.push(info);
+        resolve(info);
+      }, 600);
+    });
+  }
   return invoke<PackInfo>("pack_create", params);
 }
 
@@ -464,6 +537,15 @@ export function packDelete(id: string): Promise<void> {
 export interface GitStatusInfo {
   installed: boolean;
   version: string;
+  /** 是否已在设置中配置「我的技能仓库」 */
+  repo_configured: boolean;
+  repo_path: string;
+  /** 配置路径是否存在且是 git 仓库 */
+  repo_exists: boolean;
+  branch: string;
+  clean: boolean;
+  ahead: number;
+  behind: number;
 }
 
 /** 货架条目（index.json 或降级扫描产出） */
@@ -506,6 +588,13 @@ export function gitStatus(): Promise<GitStatusInfo> {
     return Promise.resolve({
       installed: true,
       version: "git version 2.47.0.windows.1 (mock)",
+      repo_configured: true,
+      repo_path: "D:\\mock\\my-skill-repo",
+      repo_exists: true,
+      branch: "main",
+      clean: true,
+      ahead: 0,
+      behind: 0,
     });
   }
   return invoke<GitStatusInfo>("git_status");
@@ -568,6 +657,91 @@ export function repoImportCommit(params: {
     });
   }
   return invoke<RepoImportResult>("repo_import_commit", params);
+}
+
+// ---------------------------------------------------------------------------
+// 模块 A 发布侧（PLAN-06 §1.3/§1.7/§1.11）
+// ---------------------------------------------------------------------------
+
+export interface RepoInfo {
+  local_path: string;
+  remote_url: string;
+  branch: string;
+  clean: boolean;
+  ahead: number;
+  behind: number;
+}
+
+export interface PublishResult {
+  repo_url: string;
+  pack_path: string;
+  commit_msg: string;
+  pushed: boolean;
+  rebase_retried: boolean;
+}
+
+/** repo_setup：空目录 git init + 设 remote + 初始 commit；已有仓库校验/补 remote */
+export function repoSetup(params: {
+  localPath: string;
+  remoteUrl: string;
+  initIfMissing: boolean;
+}): Promise<RepoInfo> {
+  if (isMockMode()) {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        if (/fail/i.test(params.remoteUrl)) {
+          reject(new Error("仓库已有不同的 origin（https://example.com/other.git）——App 不覆盖现有远端，请手动处理或更换本地路径"));
+          return;
+        }
+        resolve({
+          local_path: params.localPath,
+          remote_url: params.remoteUrl,
+          branch: "main",
+          clean: true,
+          ahead: 0,
+          behind: 0,
+        });
+      }, 900);
+    });
+  }
+  return invoke<RepoInfo>("repo_setup", {
+    localPath: params.localPath,
+    remoteUrl: params.remoteUrl,
+    initIfMissing: params.initIfMissing,
+  });
+}
+
+/** publish_pack：§1.7 事务（校验闸→备份→export→index 合并→commit→push，rebase 重试一次） */
+export function publishPack(params: {
+  packId: string;
+  message?: string;
+}): Promise<PublishResult> {
+  if (isMockMode()) {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        if (/fail/i.test(params.packId)) {
+          reject(new Error("本地已提交但推送失败：推送被拒：远端有新提交，需要先同步，请手动处理后重试（commit 已保留）"));
+          return;
+        }
+        resolve({
+          repo_url: "https://github.com/mock/my-skill-repo",
+          pack_path: `packs/${params.packId}.skillpack`,
+          commit_msg: `publish: ${params.packId} v1.0.0`,
+          pushed: true,
+          rebase_retried: false,
+        });
+      }, 1500);
+    });
+  }
+  return invoke<PublishResult>("publish_pack", params);
+}
+
+/** 保存/清除发布仓库配置（空串 = 清除）；不含 git 操作 */
+export function savePublishRepo(localPath: string, remoteUrl: string): Promise<void> {
+  if (isMockMode()) {
+    return Promise.resolve();
+  }
+  return invoke("save_publish_repo", { localPath, remoteUrl });
 }
 
 // ---------------------------------------------------------------------------

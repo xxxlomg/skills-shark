@@ -1,4 +1,4 @@
-import { Download, Package, Plus, Box, Trash2, Store } from "lucide-react";
+import { Download, Package, Plus, Box, Trash2, Store, UploadCloud } from "lucide-react";
 import { PackCard, type PackAction } from "./PackCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { Tip } from "@/components/common/Tip";
@@ -15,6 +15,10 @@ interface PacksViewProps {
   onPackAction: (action: PackAction, pack: PackInfo) => void;
   layout: LayoutMode;
   onLayoutChange: (mode: LayoutMode) => void;
+  /** 发布动作禁用原因（未配置仓库/无 git）；为空表示可用 */
+  publishDisabledReason?: string;
+  /** 正在发布中的 pack id */
+  publishingId?: string | null;
 }
 
 /** Skill Packs 视图：卡片网格 / 列表行 双布局 + 导入 ghost 卡（PLAN-05 P1 真实数据）。 */
@@ -26,6 +30,8 @@ export function PacksView({
   onPackAction,
   layout,
   onLayoutChange,
+  publishDisabledReason,
+  publishingId,
 }: PacksViewProps) {
   let idx = 0;
 
@@ -94,7 +100,14 @@ export function PacksView({
           {repoGhost}
           {importGhost}
           {packs.map((p) => (
-            <PackCard key={p.id} pack={p} index={idx++} onAction={onPackAction} />
+            <PackCard
+              key={p.id}
+              pack={p}
+              index={idx++}
+              onAction={onPackAction}
+              publishDisabledReason={publishDisabledReason}
+              publishing={publishingId === p.id}
+            />
           ))}
         </div>
       ) : (
@@ -141,6 +154,21 @@ export function PacksView({
                   <Box className="h-3.5 w-3.5" />
                   导出
                 </button>
+                <Tip label={publishDisabledReason || "发布到技能仓库"}>
+                  <button
+                    type="button"
+                    className="mbtn"
+                    disabled={!!publishDisabledReason || publishingId === p.id}
+                    style={
+                      publishDisabledReason || publishingId === p.id
+                        ? { opacity: 0.45, cursor: "not-allowed" }
+                        : undefined
+                    }
+                    onClick={() => onPackAction("publish", p)}
+                  >
+                    <UploadCloud className="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
                 <Tip label="删除 Pack">
                   <button
                     type="button"

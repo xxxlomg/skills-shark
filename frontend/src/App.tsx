@@ -29,6 +29,9 @@ import {
   packInstall,
   packsList,
   hubListTools,
+  gitStatus,
+  publishPack,
+  type GitStatusInfo,
   type ImportSource,
   type PackInfo,
   type RepoImportResult,
@@ -63,6 +66,16 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // 模块 A 发布侧：git/仓库健康度（发布按钮使能依据，§1.11）
+  const [gitInfo, setGitInfo] = useState<GitStatusInfo | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const refreshGitInfo = useCallback(() => {
+    gitStatus().then(setGitInfo).catch(() => setGitInfo(null));
+  }, []);
+  useEffect(() => {
+    refreshGitInfo();
+  }, [refreshGitInfo]);
 
   const handleLayoutChange = useCallback((mode: LayoutMode) => {
     setLayout(mode);
@@ -162,7 +175,8 @@ function App() {
     refresh();
     setHubToken((t) => t + 1);
     loadToolNames();
-  }, [refresh, loadToolNames]);
+    refreshGitInfo(); // 仓库配置可能在设置页变更
+  }, [refresh, loadToolNames, refreshGitInfo]);
 
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
@@ -272,12 +286,46 @@ function App() {
         }
         return;
       }
+      if (action === "publish") {
+        setPublishingId(pack.id);
+        try {
+          const r = await publishPack({ packId: pack.id });
+          toast.success(
+            r.rebase_retried
+              ? `已发布（远端有新提交，自动 rebase 后推送成功）：${r.pack_path}`
+              : `已发布到仓库：${r.pack_path}`
+          );
+          if (r.repo_url) {
+            toast.info(`仓库地址：${r.repo_url}`, { duration: 6000 });
+          }
+          refreshGitInfo();
+        } catch (e) {
+          toast.error(`发布失败：${String(e)}`, { duration: 8000 });
+          refreshGitInfo();
+        } finally {
+          setPublishingId(null);
+        }
+        return;
+      }
       if (action === "delete") {
         setDeleteTarget(pack);
       }
     },
-    [refresh]
+    [refresh, refreshGitInfo]
   );
+
+  // 发布按钮禁用原因（§1.9 降级立场：不静默失败，明确引导）
+  const publishDisabledReason = useMemo(() => {
+    if (!gitInfo) return "正在检测 git 环境…";
+    if (!gitInfo.installed)
+      return "未检测到系统 git——请安装 git，或改用「导出」后自行上传";
+    if (!gitInfo.repo_configured)
+      return "请先在设置 →「技能仓库」配置本地仓库与远端";
+    if (!gitInfo.repo_exists)
+      return "配置的仓库路径无效——请在设置中重新初始化";
+    if (!gitInfo.clean) return "仓库有未提交改动，请先处理再发布";
+    return undefined;
+  }, [gitInfo]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -390,6 +438,8 @@ function App() {
               onPackAction={handlePackAction}
               layout={layout}
               onLayoutChange={handleLayoutChange}
+              publishDisabledReason={publishDisabledReason}
+              publishingId={publishingId}
             />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />

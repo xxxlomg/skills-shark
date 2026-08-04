@@ -156,6 +156,7 @@ pub fn save_config(
             base_url: llm_base_url,
             model: llm_model,
         },
+        publish_repo: old.publish_repo,
     };
     match config::save_config(&new_config) {
         Ok(()) => {
@@ -483,16 +484,92 @@ pub fn pack_delete(id: String) -> Result<(), String> {
 pub struct GitStatusInfo {
     pub installed: bool,
     pub version: String,
+    /// 是否已在设置中配置「我的技能仓库」
+    pub repo_configured: bool,
+    /// 配置的本地路径（未配置为空串）
+    pub repo_path: String,
+    /// 配置的路径是否存在且是 git 仓库
+    pub repo_exists: bool,
+    /// 当前分支（未知为空串）
+    pub branch: String,
+    /// 工作区是否干净（未配置/不存在时 false）
+    pub clean: bool,
+    pub ahead: u32,
+    pub behind: u32,
 }
 
-/// git 可用性探测（会话内缓存；设置页/导入入口的使能依据）
+/// git 可用性 + 发布仓库健康度（设置页与发布按钮的使能依据，§1.11）
 #[tauri::command]
-pub fn git_status() -> GitStatusInfo {
+pub async fn git_status() -> GitStatusInfo {
     let info = crate::git::detect();
-    GitStatusInfo {
+    let cfg = config::load_config();
+    let (repo_configured, repo_path) = match cfg.publish_repo.as_ref() {
+        Some(r) => (true, r.local_path.clone()),
+        None => (false, String::new()),
+    };
+    let mut out = GitStatusInfo {
         installed: info.installed,
         version: info.version,
+        repo_configured,
+        repo_path: repo_path.clone(),
+        repo_exists: false,
+        branch: String::new(),
+        clean: false,
+        ahead: 0,
+        behind: 0,
+    };
+    if info.installed && repo_configured {
+        let repo = std::path::Path::new(&repo_path);
+        if repo.exists() && crate::git::is_repo(repo).await {
+            out.repo_exists = true;
+            out.branch = crate::git::current_branch(repo).await.unwrap_or_default();
+            out.clean = crate::git::status_clean(repo).await.unwrap_or(false);
+            if let Ok((a, b)) = crate::git::ahead_behind(repo).await {
+                out.ahead = a;
+                out.behind = b;
+            }
+        }
     }
+    out
+}
+
+/// repo_setup（§1.11）：空目录 git init + 设 remote + 初始 commit；已有仓库校验/补 remote。
+#[tauri::command]
+pub async fn repo_setup(
+    local_path: String,
+    remote_url: String,
+    init_if_missing: bool,
+) -> Result<crate::publish::RepoInfo, String> {
+    config::debug_log(&format!(
+        "repo_setup: {} -> {} (init={})",
+        local_path, remote_url, init_if_missing
+    ));
+    crate::publish::repo_setup(&local_path, &remote_url, init_if_missing).await
+}
+
+/// publish_pack（§1.7 全流程）：校验闸 → 备份 → export → index 合并 → commit → push。
+#[tauri::command]
+pub async fn publish_pack(
+    pack_id: String,
+    message: Option<String>,
+) -> Result<crate::publish::PublishResult, String> {
+    config::debug_log(&format!("publish_pack: {}", pack_id));
+    crate::publish::publish_pack(&pack_id, message).await
+}
+
+/// 保存/清除发布仓库配置（空串 = 清除）。不含 git 操作——初始化走 repo_setup。
+#[tauri::command]
+pub fn save_publish_repo(local_path: String, remote_url: String) -> Result<(), String> {
+    let mut cfg = config::load_config();
+    cfg.publish_repo = if local_path.trim().is_empty() && remote_url.trim().is_empty() {
+        None
+    } else {
+        Some(config::PublishRepo {
+            local_path: local_path.trim().to_string(),
+            remote_url: remote_url.trim().to_string(),
+        })
+    };
+    config::save_config(&cfg)
 }
 
 /// 浏览仓库货架：浅克隆（无 git 时降级 archive 通道）→ 500MB 闸

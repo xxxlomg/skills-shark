@@ -176,6 +176,62 @@ pub async fn run(cwd: Option<&Path>, args: &[&str]) -> Result<String, GitError> 
 }
 
 // ---------------------------------------------------------------------------
+// porcelain 状态探针（发布侧 §1.11：git_status 的仓库健康度字段）
+// 只信退出码与 --porcelain 机器格式（§1.6 纪律）
+// ---------------------------------------------------------------------------
+
+/// 工作区是否干净（`status --porcelain` 输出为空）
+pub async fn status_clean(repo: &Path) -> Result<bool, GitError> {
+    let out = run(Some(repo), &["status", "--porcelain"]).await?;
+    Ok(out.trim().is_empty())
+}
+
+/// 当前分支名；detached HEAD 时返回 "HEAD"
+pub async fn current_branch(repo: &Path) -> Result<String, GitError> {
+    let out = run(Some(repo), &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+    Ok(out.trim().to_string())
+}
+
+/// origin 远端 URL；未配置 origin 返回 None
+pub async fn remote_get_url(repo: &Path) -> Result<Option<String>, GitError> {
+    match run(Some(repo), &["remote", "get-url", "origin"]).await {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        Err(GitError::Other(_)) => Ok(None), // 无 origin 时 git 非零退出，归为"未配置"
+        Err(e) => Err(e),
+    }
+}
+
+/// HEAD 相对上游的 ahead/behind；无上游时 (0, 0)
+pub async fn ahead_behind(repo: &Path) -> Result<(u32, u32), GitError> {
+    match run(
+        Some(repo),
+        &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+    )
+    .await
+    {
+        Ok(out) => {
+            let mut parts = out.split_whitespace();
+            let ahead = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let behind = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            Ok((ahead, behind))
+        }
+        Err(GitError::Other(_)) => Ok((0, 0)), // 无上游分支
+        Err(e) => Err(e),
+    }
+}
+
+/// 目录是否为 git 仓库
+pub async fn is_repo(dir: &Path) -> bool {
+    run(
+        Some(dir),
+        &["rev-parse", "--is-inside-work-tree"],
+    )
+    .await
+    .map(|o| o.trim() == "true")
+    .unwrap_or(false)
+}
+
+// ---------------------------------------------------------------------------
 // 测试（纯函数部分：stderr 分类）
 // ---------------------------------------------------------------------------
 

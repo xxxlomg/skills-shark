@@ -1,14 +1,18 @@
 import type { CSSProperties } from "react";
-import { Box, Download, Package, Trash2 } from "lucide-react";
+import { Box, Download, Package, Trash2, UploadCloud } from "lucide-react";
 import type { PackInfo } from "@/lib/api";
 import { Tip } from "@/components/common/Tip";
 
-export type PackAction = "install" | "export" | "delete";
+export type PackAction = "install" | "export" | "publish" | "delete";
 
 interface PackCardProps {
   pack: PackInfo;
   index: number;
   onAction: (action: PackAction, pack: PackInfo) => void;
+  /** 发布动作的禁用原因（未配置仓库/无 git 等）；为空表示可用 */
+  publishDisabledReason?: string;
+  /** 发布进行中 */
+  publishing?: boolean;
 }
 
 /** hover 微抬升+提亮+辉光；active 收缩+回落，给出明确按压反馈 */
@@ -28,7 +32,7 @@ const dangerBtn =
 const MAX_TAGS = 3;
 
 /** Skill Pack 卡片：版本徽章、技能名标签、概述与操作按钮（PLAN-05 P1）。 */
-export function PackCard({ pack, index, onAction }: PackCardProps) {
+export function PackCard({ pack, index, onAction, publishDisabledReason, publishing }: PackCardProps) {
   const shown = pack.skill_names.slice(0, MAX_TAGS);
   const rest = pack.skill_names.length - shown.length;
 
@@ -83,6 +87,22 @@ export function PackCard({ pack, index, onAction }: PackCardProps) {
             <Box className="h-3.5 w-3.5" />
             导出
           </button>
+          <Tip label={publishDisabledReason || "发布到技能仓库"}>
+            <button
+              type="button"
+              className={ghostBtn}
+              disabled={!!publishDisabledReason || publishing}
+              onClick={() => onAction("publish", pack)}
+              style={
+                publishDisabledReason || publishing
+                  ? { opacity: 0.45, cursor: "not-allowed" }
+                  : undefined
+              }
+            >
+              <UploadCloud className="h-3.5 w-3.5" />
+              {publishing ? "发布中…" : "发布"}
+            </button>
+          </Tip>
           <Tip label="删除 Pack">
             <button
               type="button"

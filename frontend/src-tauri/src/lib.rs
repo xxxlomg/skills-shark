@@ -4,6 +4,7 @@ mod git;
 mod hub;
 mod import;
 mod pack;
+mod publish;
 mod scanner;
 mod shelf;
 mod translations;
@@ -54,6 +55,9 @@ pub fn run() {
             commands::git_status,
             commands::repo_browse,
             commands::repo_import_commit,
+            commands::repo_setup,
+            commands::publish_pack,
+            commands::save_publish_repo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
