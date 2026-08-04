@@ -369,6 +369,100 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<u64, String> {
 }
 
 // ---------------------------------------------------------------------------
+// B3：账本状态检测（hub_links_status 的核心逻辑，命令包装在 B5）
+// ---------------------------------------------------------------------------
+
+/// 单条引用的健康状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkHealth {
+    /// 正常：link → junction 完好且指向源；copy → 实体在
+    Normal,
+    /// 目标缺失：落点目录被外部删除
+    Missing,
+    /// 孤儿：link 的源已不存在（悬空 junction），或 junction 被替换/改指向
+    Orphaned,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkStatus {
+    #[serde(flatten)]
+    pub link: HubLink,
+    pub health: LinkHealth,
+    /// 人类可读诊断（health != normal 时给出原因）
+    pub detail: String,
+}
+
+/// 全量诊断：遍历账本逐条判定。纯读，不改账本（账本清理由 unlink/后续维护命令负责）。
+pub fn links_status(base: &Path) -> Vec<LinkStatus> {
+    let ledger = load_ledger(base);
+    ledger.links.iter().map(diagnose_link).collect()
+}
+
+fn diagnose_link(link: &HubLink) -> LinkStatus {
+    let target = PathBuf::from(&link.target);
+    let source = PathBuf::from(&link.source);
+
+    match link.mode {
+        LedgerMode::Copy => {
+            if target.is_dir() {
+                LinkStatus { link: link.clone(), health: LinkHealth::Normal, detail: String::new() }
+            } else {
+                LinkStatus {
+                    link: link.clone(),
+                    health: LinkHealth::Missing,
+                    detail: "副本目录已不存在".to_string(),
+                }
+            }
+        }
+        LedgerMode::Link => {
+            if !dest_exists(&target) {
+                return LinkStatus {
+                    link: link.clone(),
+                    health: LinkHealth::Missing,
+                    detail: "junction 落点已不存在".to_string(),
+                };
+            }
+            if !is_junction(&target) {
+                return LinkStatus {
+                    link: link.clone(),
+                    health: LinkHealth::Orphaned,
+                    detail: "落点已不是 junction（可能被替换为真实目录）".to_string(),
+                };
+            }
+            // 指向一致性：junction 实际指向 vs 账本记录的源
+            if let Ok(actual) = junction::get_target(&target) {
+                if !same_path(&actual, &source) {
+                    return LinkStatus {
+                        link: link.clone(),
+                        health: LinkHealth::Orphaned,
+                        detail: format!(
+                            "junction 指向 {} 与账本源不一致",
+                            actual.display()
+                        ),
+                    };
+                }
+            }
+            if !source.is_dir() {
+                return LinkStatus {
+                    link: link.clone(),
+                    health: LinkHealth::Orphaned,
+                    detail: "源目录已不存在，junction 悬空".to_string(),
+                };
+            }
+            LinkStatus { link: link.clone(), health: LinkHealth::Normal, detail: String::new() }
+        }
+    }
+}
+
+/// 路径等价比较：先尝试规范化，失败则退回分隔符/大小写归一比较
+fn same_path(a: &Path, b: &Path) -> bool {
+    let ca = fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
+    let cb = fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
+    config::norm_for_compare(&ca) == config::norm_for_compare(&cb)
+}
+
+// ---------------------------------------------------------------------------
 // 测试（B2 验收：junction 链接创建成功、副本独立、Move 原子性、unlink 安全闸门）
 // ---------------------------------------------------------------------------
 
@@ -557,6 +651,46 @@ mod tests {
         let dest = tgt_root.join("conv");
         assert!(!is_junction(&dest), "junction 已被实体替换");
         assert!(dest.join("SKILL.md").is_file());
+        cleanup(&root);
+    }
+
+    #[test]
+    fn links_status_detects_all_health_states() {
+        let root = tmp_root("status");
+        let src_root = root.join("src");
+        let tgt_root = root.join("tgt");
+        fs::create_dir_all(&src_root).unwrap();
+        fs::create_dir_all(&tgt_root).unwrap();
+        let base = root.join("data");
+
+        let ok_link = link_skill_to_dir(&base, &make_skill(&src_root, "ok-link"), &tgt_root, "codex", LinkMode::Link).unwrap();
+        let gone_target = link_skill_to_dir(&base, &make_skill(&src_root, "gone-target"), &tgt_root, "codex", LinkMode::Link).unwrap();
+        let dangling = link_skill_to_dir(&base, &make_skill(&src_root, "dangling"), &tgt_root, "codex", LinkMode::Link).unwrap();
+        let tampered = link_skill_to_dir(&base, &make_skill(&src_root, "tampered2"), &tgt_root, "codex", LinkMode::Link).unwrap();
+        let ok_copy = link_skill_to_dir(&base, &make_skill(&src_root, "ok-copy"), &tgt_root, "codex", LinkMode::Copy).unwrap();
+        let gone_copy = link_skill_to_dir(&base, &make_skill(&src_root, "gone-copy"), &tgt_root, "codex", LinkMode::Copy).unwrap();
+
+        // 制造各状态
+        fs::remove_dir(&tgt_root.join("gone-target")).unwrap(); // junction 整体移除 → missing
+        let dangling_src = src_root.join("dangling");
+        let dangling_dest = tgt_root.join("dangling");
+        fs::remove_dir_all(&dangling_src).unwrap(); // 源删除 → 悬空 junction → orphaned
+        assert!(dest_exists(&dangling_dest), "悬空 junction 的 metadata 仍在");
+        let t_dest = tgt_root.join("tampered2");
+        junction::delete(&t_dest).unwrap();
+        let _ = fs::remove_dir(&t_dest);
+        fs::create_dir_all(&t_dest).unwrap(); // 换成真实目录 → orphaned
+        fs::remove_dir_all(&tgt_root.join("gone-copy")).unwrap(); // 副本删除 → missing
+
+        let statuses = links_status(&base);
+        assert_eq!(statuses.len(), 6);
+        let health_of = |id: &str| statuses.iter().find(|s| s.link.id == id).unwrap().health;
+        assert_eq!(health_of(&ok_link.id), LinkHealth::Normal);
+        assert_eq!(health_of(&gone_target.id), LinkHealth::Missing);
+        assert_eq!(health_of(&dangling.id), LinkHealth::Orphaned);
+        assert_eq!(health_of(&tampered.id), LinkHealth::Orphaned);
+        assert_eq!(health_of(&ok_copy.id), LinkHealth::Normal);
+        assert_eq!(health_of(&gone_copy.id), LinkHealth::Missing);
         cleanup(&root);
     }
 

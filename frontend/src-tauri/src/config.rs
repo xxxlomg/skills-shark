@@ -355,7 +355,7 @@ pub fn expand_path(s: &str) -> Option<PathBuf> {
 /// 大小写折叠 + 分隔符统一 + 去尾部分隔符（Windows 路径比较用）。
 /// 实测边界：用户配置中同目录可能以 `\` 与混合 `/` 两种形态并存，
 /// 不统一分隔符会导致重复候选 → 重复扫描。
-fn norm_for_compare(p: &std::path::Path) -> String {
+pub(crate) fn norm_for_compare(p: &std::path::Path) -> String {
     let mut s = p.to_string_lossy().to_lowercase();
     if cfg!(windows) {
         s = s.replace('/', "\\");
