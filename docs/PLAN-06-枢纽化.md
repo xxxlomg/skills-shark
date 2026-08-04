@@ -508,7 +508,7 @@ struct RuleSpec {
 |---|---|---|
 | frontmatter 基础 | FM-01..07 | YAML 可解析；description 存在/非空/≤1024；name 格式 `^[a-z0-9-]+$`（仅 Codex 生态报）；user-invocable/disable-model-invocation 类型检查（必须为布尔——**前提是二者是 CL 白名单合法字段**（§3.1，修订 R2-d），FM 层只做类型检查，绝不报"未知字段"） |
 | Claude 生态 | CL-01..05 | name 与目录名一致（Warn）；白名单 = {name, description, license, allowed-tools, metadata, **user-invocable, disable-model-invocation**}，名单外字段列表化提示（严格模式升 Error）；allowed-tools 字符串形态提示 |
-| Codex 生态 | CX-01..04 | 白名单 = {name, description, license, allowed-tools, metadata}（Codex quick_validate.py 基线）——user-invocable/disable-model-invocation 在此报未知字段是**正确行为**（矩阵分流：Claude pass / Codex warn，修订 R2-d）；未知字段按严格/诊断分流；openai.yaml 存在性（Info）；default_prompt 含 `$skill-name`；short_description 25-64 字符 |
+| Codex 生态 | CX-01..04 | 白名单 = {name, description, license, allowed-tools, metadata}（Codex quick_validate.py 基线）——user-invocable/disable-model-invocation 在此报未知字段是**正确行为**（矩阵分流：Claude pass / Codex warn，修订 R2-d）；未知字段按严格/诊断分流；openai.yaml 存在性检查**闸控于 `agents/` 目录存在**（修订 R2-e，纯 Claude 技能不报噪音）；default_prompt 含 `$skill-name`（仅对含 openai.yaml 的技能，「缺」= openai.yaml 缺失）；short_description **≤64 字符**（豁免 25 下限，修订 R2-e：官方原件实测 24 字符） |
 | 文件层 | FS-01..05 | SKILL.md 存在；体积阈值提示（>500KB Warn）；引用文件存在性（Info）；.py 无 shebang 提示（Info）；目录深度 |
 
 ### 3.6 严格 / 诊断双轨 + 兼容矩阵输出
@@ -839,6 +839,7 @@ Hub 页与创作入口的信息架构（新 Tab？顶栏入口？）由 Paw 交�
 | R2-b | 结构化编辑硬规格（frontmatter 表单化 + YAML round-trip 保留未知字段）失去落点 | 新增 C10 里程碑与 §3.14 规格节（含 `skill_edit_frontmatter` 命令、行级外科手术策略、字节级 diff 验收标准）；§3.2/§7.3 交叉引用同步；§5.1/§5.2 排期与总人天更新（23d→24.5d，仍在 21-28d 区间） |
 | R2-c | Hub 页/创作入口 IA 留白，勿硬编码 TabNav | 新增 §7.6 导航结构插槽约束（视图注册表数据驱动）；B5/C9 验收标准加注 |
 | R2-d | §3.5 FM 类型检查与 CL 白名单自相矛盾（user-invocable/disable-model-invocation 是 Claude Code 合法字段） | CL 白名单显式收录两字段（§3.1/§3.5）；CX 白名单维持 Codex 官方五字段基线（报未知字段为正确行为，矩阵分流）；R5 风险条目同步修正 |
+| R2-e | C2 落地时三处规格与官方原件/生态实况冲突（Boss 2026-08-05 批准） | ① CX-04 官方原件 `short_description` 实测 24 字符（"Create or update a skill"），强卡 25 下限会打掉官方原件——豁免下限、仅保留 ≤64；② CX-01/CX-03 闸控于 `agents/` 目录存在（Codex 生态标志），纯 Claude 技能不再报 openai.yaml 噪音；③ CX-03「缺」解释为 openai.yaml 缺失而非 default_prompt 字段缺失（官方原件无该字段，强制必现会打架）。§3.5 表格已同步 |
 
 另：§7.5 遗留修改处置（Tip.tsx 单独提交）获 Paw 确认同意，按既定节奏执行。依赖实测结论（serde_yaml-ng / junction 真实存在、API 面与选型描述一致）已核阅，维持 §3.4/§2.4 选型不变。
 

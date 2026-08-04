@@ -1,10 +1,13 @@
 //! 模块 C：技能规范校验器（PLAN-06 §3）
 //!
-//! C1：骨架 + FM 规则组。
+//! C1：骨架 + FM 规则组。C2：CL/CX 生态规则组。
 //! - 独立模块，不依赖扫描管线：可校验任意目录（含未纳入扫描的草稿目录）。
 //! - 双轨模式（§3.6）：Diagnostic 永不 fail（passed 恒 true）；Strict 下 Error 阻断。
 //! - 规则表 = 数据 + 检查函数（§3.5）；strict_error 规则在严格模式升 Error。
 //! - FM-01..08（§3.5 FM 层）：FM 层只做类型/格式检查，绝不报"未知字段"（CL/CX 层职责，C2）。
+//! - CL-01..03 / CX-01..04（C2，§3.5 + R2-d）：白名单按生态分治——CL 七字段
+//!   （含 user-invocable / disable-model-invocation），CX 五字段（Codex quick_validate.py
+//!   基线）。两字段在 CX 侧报未知属正确行为，由兼容矩阵分流（Claude pass / Codex warn）。
 //!
 //! 规则来源：两份官方 skill-creator 的 quick_validate.py 差异比对（§3.1）：
 //! - name/description 必填、description 无尖括号 = 两家共识（All）
@@ -91,14 +94,31 @@ pub struct ValidationReport {
 
 /// 一个技能目录的校验输入快照。SKILL.md 缺失/损坏也要能表达（FM-01 依赖）。
 pub struct SkillFileset {
-    /// C2 的 FS 规则组（引用文件存在性、目录深度等）需要以目录为基准
-    #[allow(dead_code)]
+    /// 技能目录。CL-01 比对目录名；FS 规则组（后续）以其为基准
     pub dir: PathBuf,
     pub skill_md_exists: bool,
     /// frontmatter 解析结果；None = 缺失或解析失败
     pub frontmatter: Option<Mapping>,
     /// frontmatter 缺失/解析失败的原因（供 FM-01 措辞）
     pub fm_error: Option<String>,
+    /// 是否存在 agents/ 目录（Codex 产品层约定："Other product-specific config
+    /// can also live in the agents/ folder"，官方 references/openai_yaml.md）
+    pub agents_dir: bool,
+    /// 是否存在 agents/openai.yaml
+    pub has_openai_yaml: bool,
+    /// agents/openai.yaml 解析出的 interface 层（CX-03/CX-04 输入）；
+    /// None = 文件缺失 / 损坏 / 无 interface 段
+    pub codex_interface: Option<CodexInterface>,
+}
+
+/// openai.yaml 的 `interface:` 段（官方 schema 全部字段位于 interface 之下，R2-a）。
+/// 每个字段：None = 未提供（官方视为可选，不报）；Some(Err) = 提供但类型错误。
+/// 仅收录 CX-03/CX-04 实际用到的字段；display_name 等无规则约束的字段不解析，
+/// 避免 dead_code（官方可选字段，未来加规则时再收录）。
+#[derive(Debug, Clone)]
+pub struct CodexInterface {
+    pub short_description: Option<Result<String, ()>>,
+    pub default_prompt: Option<Result<String, ()>>,
 }
 
 /// 从目录加载文件集。SKILL.md 不存在时返回 exists=false 的空快照，不报 Err。
@@ -112,6 +132,9 @@ pub fn load_fileset(dir: &Path) -> SkillFileset {
                 skill_md_exists: false,
                 frontmatter: None,
                 fm_error: None,
+                agents_dir: false,
+                has_openai_yaml: false,
+                codex_interface: None,
             }
         }
     };
@@ -123,12 +146,44 @@ pub fn load_fileset(dir: &Path) -> SkillFileset {
         },
         None => (None, Some("缺少 frontmatter（文件需以 --- 包裹的 YAML 头开始）".to_string())),
     };
+    let (agents_dir, has_openai_yaml, codex_interface) = load_codex_layer(dir);
     SkillFileset {
         dir: dir.to_path_buf(),
         skill_md_exists: true,
         frontmatter: fm,
         fm_error,
+        agents_dir,
+        has_openai_yaml,
+        codex_interface,
     }
+}
+
+/// 探测 Codex 产品层（openai.yaml）。生态形态由文件集决定：
+/// Claude 形态 = 仅 SKILL.md（+资源目录）；Codex 形态 = 带 agents/openai.yaml。
+fn load_codex_layer(dir: &Path) -> (bool, bool, Option<CodexInterface>) {
+    let agents = dir.join("agents");
+    let agents_dir = agents.is_dir();
+    let yaml_path = agents.join("openai.yaml");
+    match std::fs::read_to_string(&yaml_path) {
+        Ok(text) => (agents_dir, true, parse_codex_interface(&text)),
+        Err(_) => (agents_dir, false, None),
+    }
+}
+
+/// 解析 openai.yaml 的 interface 段。文件损坏 / 顶层非映射 / 无 interface 段 → None。
+fn parse_codex_interface(text: &str) -> Option<CodexInterface> {
+    let root: Value = serde_yaml_ng::from_str(text).ok()?;
+    let interface = root.get("interface")?;
+    let m = interface.as_mapping()?;
+    let field = |key: &str| match m.get(&Value::String(key.to_string())) {
+        None => None,
+        Some(Value::String(s)) => Some(Ok(s.clone())),
+        Some(_) => Some(Err(())),
+    };
+    Some(CodexInterface {
+        short_description: field("short_description"),
+        default_prompt: field("default_prompt"),
+    })
 }
 
 /// 提取 `---` 包裹的 frontmatter YAML 文本。容忍 BOM 与 CRLF。
@@ -305,7 +360,153 @@ fn check_fm08(fs: &SkillFileset) -> Option<(String, String)> {
     None
 }
 
-/// FM 规则组（C1）。CL/CX/FS 规则组由 C2 追加。
+// ---- CL：Claude 生态（C2，§3.5 + R2-d）----
+
+/// CL 白名单（R2-d）= Codex 基线五字段 ∪ Claude Code 两个合法布尔字段
+const CL_WHITELIST: &[&str] = &[
+    "name",
+    "description",
+    "license",
+    "allowed-tools",
+    "metadata",
+    "user-invocable",
+    "disable-model-invocation",
+];
+
+/// CX 白名单 = Codex quick_validate.py 基线五字段（R2-d：不收录两布尔字段）
+const CX_WHITELIST: &[&str] = &["name", "description", "license", "allowed-tools", "metadata"];
+
+/// 名单外字段列表化（排序保证输出稳定）。非字符串键属 YAML 异常形态，
+/// 归 FM-01 语义，不在此重复报
+fn unknown_fields(m: &Mapping, whitelist: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = m
+        .clone()
+        .into_iter()
+        .filter_map(|(k, _)| match k {
+            Value::String(s) if !whitelist.contains(&s.as_str()) => Some(s),
+            _ => None,
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// CL-01：name 与目录名一致（Warn；目录名随安装位置变化，严格模式不升级）
+fn check_cl01(fs: &SkillFileset) -> Option<(String, String)> {
+    let name = name_str(fs)?;
+    let dir_name = fs.dir.file_name()?.to_string_lossy().to_string();
+    if name == dir_name {
+        None
+    } else {
+        Some((
+            format!("name '{}' 与目录名 '{}' 不一致", name, dir_name),
+            "Claude 生态约定文件夹与 name 完全一致；重命名目录或修改 name".to_string(),
+        ))
+    }
+}
+
+/// CL-02：CL 白名单外字段列表化提示（诊断 Warn，严格升 Error）
+fn check_cl02(fs: &SkillFileset) -> Option<(String, String)> {
+    let m = fs.frontmatter.as_ref()?;
+    let unknown = unknown_fields(m, CL_WHITELIST);
+    if unknown.is_empty() {
+        None
+    } else {
+        Some((
+            format!("Claude 生态未知字段：{}", unknown.join(", ")),
+            "Claude 白名单 = name, description, license, allowed-tools, metadata, \
+             user-invocable, disable-model-invocation；移除或改名名单外字段"
+                .to_string(),
+        ))
+    }
+}
+
+/// CL-03：allowed-tools 字符串形态提示（Claude 官方用列表；字符串形态仍被接受，
+/// 属建议级，严格模式不升级）
+fn check_cl03(fs: &SkillFileset) -> Option<(String, String)> {
+    let m = fs.frontmatter.as_ref()?;
+    match fm_value(m, "allowed-tools") {
+        Some(Value::String(_)) => Some((
+            "allowed-tools 为字符串形态".to_string(),
+            "Claude 官方使用列表形态（如 [\"Read\", \"Bash\"]）".to_string(),
+        )),
+        _ => None,
+    }
+}
+
+// ---- CX：Codex 生态（C2，§3.5 + R2-d + §3.1 openai.yaml）----
+
+/// CX-01：openai.yaml 存在性（Info）。仅当 agents/ 目录已存在（Codex 产品层意图）
+/// 时才提示缺失——纯 Claude 形态（无 agents/）缺席属正常，不打扰
+fn check_cx01(fs: &SkillFileset) -> Option<(String, String)> {
+    if fs.agents_dir && !fs.has_openai_yaml {
+        Some((
+            "存在 agents/ 目录但未找到 agents/openai.yaml".to_string(),
+            "openai.yaml 为 Codex 界面元数据层；不需要可移除 agents/ 目录".to_string(),
+        ))
+    } else {
+        None
+    }
+}
+
+/// CX-02：CX 白名单外字段（Codex 五字段基线）。R2-d 核心：
+/// user-invocable / disable-model-invocation 在此报未知是正确行为（矩阵分流）
+fn check_cx02(fs: &SkillFileset) -> Option<(String, String)> {
+    let m = fs.frontmatter.as_ref()?;
+    let unknown = unknown_fields(m, CX_WHITELIST);
+    if unknown.is_empty() {
+        None
+    } else {
+        Some((
+            format!("Codex 生态未知字段：{}", unknown.join(", ")),
+            "Codex 白名单 = name, description, license, allowed-tools, metadata\
+             （quick_validate.py 基线）；移除或改名名单外字段"
+                .to_string(),
+        ))
+    }
+}
+
+/// CX-03：interface.default_prompt 须显式提及 `$skill-name`（官方 references/openai_yaml.md：
+/// "It must explicitly mention the skill as $skill-name"）。字段本身可选——官方原件即无此字段，
+/// 故仅在场时检查，缺席不报
+fn check_cx03(fs: &SkillFileset) -> Option<(String, String)> {
+    let itf = fs.codex_interface.as_ref()?;
+    match &itf.default_prompt {
+        None => None,
+        Some(Err(())) => Some((
+            "openai.yaml 的 interface.default_prompt 必须是字符串".to_string(),
+            "写成带引号的字符串，如 \"Use $skill-name to …\"".to_string(),
+        )),
+        Some(Ok(p)) if !p.contains("$skill-name") => Some((
+            "openai.yaml 的 default_prompt 未包含 $skill-name".to_string(),
+            "官方约定 default_prompt 须显式提及技能，如 \"Use $skill-name to …\""
+                .to_string(),
+        )),
+        Some(Ok(_)) => None,
+    }
+}
+
+/// CX-04：interface.short_description 长度区间。官方 schema 标称 25–64，但官方原件
+/// skill-creator 为 24 字符（"Create or update a skill"）——原件与规则冲突时以原件为准，
+/// 下限豁免；上限 64 无冲突，照章执行（严格模式升 Error）。字段缺席不报（官方原件无此字段亦合法）
+fn check_cx04(fs: &SkillFileset) -> Option<(String, String)> {
+    let itf = fs.codex_interface.as_ref()?;
+    match &itf.short_description {
+        Some(Ok(s)) if s.chars().count() > 64 => Some((
+            format!("openai.yaml 的 short_description 长度 {} 超过 64 字符上限", s.chars().count()),
+            "精简 short_description（官方建议 25–64 字符）".to_string(),
+        )),
+        Some(Err(())) => Some((
+            "openai.yaml 的 interface.short_description 必须是字符串".to_string(),
+            "写成带引号的字符串".to_string(),
+        )),
+        _ => None,
+    }
+}
+
+/// FM 规则组（C1）+ CL/CX 规则组（C2）。FS 规则组待后续追加。
+/// CL/CX id 分配：§3.6 输出样例将"未知字段"钉在 CX-02，故 CX-01 = openai.yaml 存在性；
+/// CL 侧无样例约束，按 §3.5 行文顺序取 CL-01..03（PLAN-06 标 CL-01..05 但仅定义三条语义）
 static RULES: &[RuleSpec] = &[
     RuleSpec { id: "FM-01", base: Severity::Error, strict_error: false, eco: Eco::All, check: check_fm01 },
     RuleSpec { id: "FM-02", base: Severity::Error, strict_error: false, eco: Eco::All, check: check_fm02 },
@@ -315,6 +516,13 @@ static RULES: &[RuleSpec] = &[
     RuleSpec { id: "FM-06", base: Severity::Error, strict_error: false, eco: Eco::All, check: check_fm06 },
     RuleSpec { id: "FM-07", base: Severity::Warn, strict_error: true, eco: Eco::Codex, check: check_fm07 },
     RuleSpec { id: "FM-08", base: Severity::Error, strict_error: false, eco: Eco::Claude, check: check_fm08 },
+    RuleSpec { id: "CL-01", base: Severity::Warn, strict_error: false, eco: Eco::Claude, check: check_cl01 },
+    RuleSpec { id: "CL-02", base: Severity::Warn, strict_error: true, eco: Eco::Claude, check: check_cl02 },
+    RuleSpec { id: "CL-03", base: Severity::Warn, strict_error: false, eco: Eco::Claude, check: check_cl03 },
+    RuleSpec { id: "CX-01", base: Severity::Info, strict_error: false, eco: Eco::Codex, check: check_cx01 },
+    RuleSpec { id: "CX-02", base: Severity::Warn, strict_error: true, eco: Eco::Codex, check: check_cx02 },
+    RuleSpec { id: "CX-03", base: Severity::Warn, strict_error: true, eco: Eco::Codex, check: check_cx03 },
+    RuleSpec { id: "CX-04", base: Severity::Warn, strict_error: true, eco: Eco::Codex, check: check_cx04 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -390,9 +598,56 @@ mod tests {
     use super::*;
 
     fn fileset_from(content: &str) -> (tempfile::TempDir, SkillFileset) {
+        fileset_named(frontmatter_name(content).as_deref(), content)
+    }
+
+    /// 技能目录语义：目录名取自 frontmatter name（无则给定名），
+    /// 默认不制造 CL-01 名字/目录不一致噪声
+    fn fileset_named(dir_name: Option<&str>, content: &str) -> (tempfile::TempDir, SkillFileset) {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("SKILL.md"), content).unwrap();
-        let fs = load_fileset(tmp.path());
+        let dir = tmp.path().join(dir_name.unwrap_or("unnamed-skill"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), content).unwrap();
+        let fs = load_fileset(&dir);
+        (tmp, fs)
+    }
+
+    /// 从 SKILL.md 文本粗提取 frontmatter 的 name 值（测试助手用，容错宽松）
+    fn frontmatter_name(content: &str) -> Option<String> {
+        let text = content.trim_start_matches('\u{feff}');
+        let mut lines = text.lines();
+        if lines.next()?.trim() != "---" {
+            return None;
+        }
+        for l in lines {
+            let t = l.trim();
+            if t == "---" {
+                break;
+            }
+            if let Some(v) = t.strip_prefix("name:") {
+                let v = v.trim().trim_matches('"').trim_matches('\'').trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// 带 agents/openai.yaml 的 Codex 形态文件集
+    fn fileset_with_openai_yaml(skill_md: &str, openai_yaml: &str) -> (tempfile::TempDir, SkillFileset) {
+        let (tmp, _) = fileset_from(skill_md);
+        let dir = tmp
+            .path()
+            .read_dir()
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .find(|e| e.path().is_dir())
+            .expect("fileset_from 应创建技能子目录")
+            .path();
+        std::fs::create_dir_all(dir.join("agents")).unwrap();
+        std::fs::write(dir.join("agents").join("openai.yaml"), openai_yaml).unwrap();
+        let fs = load_fileset(&dir);
         (tmp, fs)
     }
 
@@ -529,9 +784,11 @@ mod tests {
         let (_t, fs) = fileset_from("---\nname: ok\ndescription: d\nuser-invocable: \"yes\"\n---\n");
         let rep = validate_fileset(&fs, Mode::Strict);
         assert!(rule_ids(&rep).contains(&"FM-08".to_string()));
-        // Claude 生态字段：claude 侧 fail，codex 侧无感（未知字段归 CX 层，C2）
+        // Claude 生态字段：claude 侧 FM-08 类型错误 → fail
         assert_eq!(rep.matrix.claude.verdict, Verdict::Fail);
-        assert_eq!(rep.matrix.codex.verdict, Verdict::Pass);
+        // C2 后：user-invocable 在 Codex 侧属未知字段（R2-d 正确行为），
+        // CX-02 严格模式升 Error → codex fail（诊断模式下为 warn）
+        assert_eq!(rep.matrix.codex.verdict, Verdict::Fail);
     }
 
     #[test]
@@ -589,7 +846,12 @@ mod tests {
 
     /// Codex 官方 skill-creator 原件（真机环境测试：文件不存在则跳过）。
     /// 验收口径（PLAN-06 §3.1）：FM 层对官方原件应全绿——官方自家校验器的
-    /// 并集规则就出自这里；差异项（若有）属 CL/CX 层职责，C2 再钉。
+    /// 并集规则就出自这里。
+    /// C2 扩展（PLAN-06 C2 验收「官方原件 fixture 回归全绿」）：原件形态
+    /// （frontmatter = name+description+metadata，带 agents/openai.yaml，
+    /// 2026-08-05 逐字核实）应全规则零 issue——我们的 CL/CX 规则就提取自
+    /// 这些官方件（quick_validate.py / references/openai_yaml.md）。
+    /// 原件若演化出未知字段或新 interface 字段，退回 C1 口径只钉 FM 层。
     #[test]
     fn real_codex_skill_creator_original() {
         let Some(home) = dirs::home_dir() else { return };
@@ -609,5 +871,263 @@ mod tests {
             "Codex 官方 skill-creator 未过 FM 层: {:?}",
             fm_issues
         );
+        // C2：已核实形态下全规则零 issue（CL/CX 层回归）
+        let keys = fs.frontmatter.as_ref().map(unknown_keys_sorted).unwrap_or_default();
+        let shape_verified = keys == ["description", "metadata", "name"]
+            && fs.has_openai_yaml
+            && fs
+                .codex_interface
+                .as_ref()
+                .is_some_and(|i| matches!(&i.short_description, Some(Ok(s)) if s == "Create or update a skill"));
+        if shape_verified {
+            assert!(
+                rep.issues.is_empty(),
+                "官方原件应全规则全绿（CL/CX 规则提取自该原件）: {:?}",
+                rep.issues
+            );
+            assert_eq!(rep.matrix.codex.verdict, Verdict::Pass);
+            assert_eq!(rep.matrix.claude.verdict, Verdict::Pass);
+        }
+    }
+
+    /// 原件 frontmatter 键集（排序后），供形态核对
+    fn unknown_keys_sorted(m: &Mapping) -> Vec<String> {
+        let mut keys: Vec<String> = m
+            .clone()
+            .into_iter()
+            .filter_map(|(k, _)| match k {
+                Value::String(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    // ==== C2：CL 生态规则 ====
+
+    #[test]
+    fn cl01_name_dirname_mismatch_is_warn() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("other-name");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: real-name\ndescription: d\n---\n",
+        )
+        .unwrap();
+        let fs = load_fileset(&skill);
+        let rep = validate_fileset(&fs, Mode::Strict);
+        let iss = rep.issues.iter().find(|i| i.rule_id == "CL-01").expect("应触发 CL-01");
+        assert_eq!(iss.severity, Severity::Warn, "目录名随安装位置变化，严格模式不升级");
+        assert!(rep.passed, "CL-01 不阻断");
+        assert_eq!(rep.matrix.claude.verdict, Verdict::Warn);
+        assert_eq!(rep.matrix.codex.verdict, Verdict::Pass, "Codex 侧无感");
+    }
+
+    #[test]
+    fn cl01_name_matches_dirname_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("my-skill");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: d\n---\n",
+        )
+        .unwrap();
+        let rep = validate_dir(&skill, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CL-01".to_string()));
+    }
+
+    #[test]
+    fn cl02_unknown_fields_dual_track_and_listing() {
+        // PLAN-06 C2 验收样本：未知字段 诊断=提示、严格=Error；多字段列表化且排序稳定
+        let content = "---\nname: ok-skill\ndescription: d\ncategory: tools\nzebra-extra: 1\n---\n";
+        let (_t, fs) = fileset_from(content);
+        let diag = validate_fileset(&fs, Mode::Diagnostic);
+        let d = diag.issues.iter().find(|i| i.rule_id == "CL-02").expect("诊断应提示 CL-02");
+        assert_eq!(d.severity, Severity::Warn);
+        assert!(d.message.contains("category") && d.message.contains("zebra-extra"), "名单外字段列表化: {}", d.message);
+        assert!(diag.passed, "诊断模式永不阻断");
+
+        let strict = validate_fileset(&fs, Mode::Strict);
+        assert!(!strict.passed);
+        let s = strict.issues.iter().find(|i| i.rule_id == "CL-02").unwrap();
+        assert_eq!(s.severity, Severity::Error, "严格模式未知字段升 Error");
+        assert_eq!(strict.matrix.claude.verdict, Verdict::Fail);
+    }
+
+    #[test]
+    fn cl02_seven_whitelist_fields_all_pass() {
+        let content = "---\nname: ok-skill\ndescription: d\nlicense: MIT\nallowed-tools:\n  - Read\nmetadata:\n  author: x\nuser-invocable: true\ndisable-model-invocation: false\n---\n";
+        let (_t, fs) = fileset_from(content);
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CL-02".to_string()), "七字段全在白名单: {:?}", rep.issues);
+    }
+
+    #[test]
+    fn boolean_fields_matrix_split_claude_pass_codex_warn() {
+        // R2-d 核心语义：user-invocable 在 CL 白名单合法（pass），在 CX 侧报未知（正确行为）
+        let (_t, fs) = fileset_from("---\nname: ok-skill\ndescription: d\nuser-invocable: true\n---\n");
+        let rep = validate_fileset(&fs, Mode::Diagnostic);
+        assert!(!rule_ids(&rep).contains(&"CL-02".to_string()), "CL 白名单收录 user-invocable");
+        let cx = rep.issues.iter().find(|i| i.rule_id == "CX-02").expect("CX 侧应报未知");
+        assert_eq!(cx.severity, Severity::Warn);
+        assert_eq!(rep.matrix.claude.verdict, Verdict::Pass);
+        assert_eq!(rep.matrix.codex.verdict, Verdict::Warn);
+    }
+
+    #[test]
+    fn cl02_skipped_when_frontmatter_broken() {
+        let (_t, fs) = fileset_from("---\nname: [unclosed\n---\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CL-02".to_string()), "FM-01 已报，CL-02 不连锁");
+    }
+
+    #[test]
+    fn cl03_allowed_tools_string_form() {
+        let (_t, fs) = fileset_from("---\nname: ok-skill\ndescription: d\nallowed-tools: \"Read, Bash\"\n---\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        let iss = rep.issues.iter().find(|i| i.rule_id == "CL-03").expect("应触发 CL-03");
+        assert_eq!(iss.severity, Severity::Warn, "字符串形态仍被接受，建议级不升级");
+        assert!(rep.passed);
+    }
+
+    #[test]
+    fn cl03_allowed_tools_list_ok() {
+        let (_t, fs) = fileset_from("---\nname: ok-skill\ndescription: d\nallowed-tools:\n  - Read\n  - Bash\n---\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CL-03".to_string()));
+    }
+
+    // ==== C2：CX 生态规则 ====
+
+    #[test]
+    fn cx01_agents_dir_without_openai_yaml_info() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("ok-skill");
+        std::fs::create_dir_all(skill.join("agents")).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: ok-skill\ndescription: d\n---\n",
+        )
+        .unwrap();
+        let fs = load_fileset(&skill);
+        let rep = validate_fileset(&fs, Mode::Strict);
+        let iss = rep.issues.iter().find(|i| i.rule_id == "CX-01").expect("应触发 CX-01");
+        assert_eq!(iss.severity, Severity::Info);
+        assert_eq!(rep.matrix.codex.verdict, Verdict::Pass, "Info 不进 notes、不影响 verdict");
+    }
+
+    #[test]
+    fn cx01_silent_for_claude_shape() {
+        // 纯 Claude 形态（无 agents/）：缺席 openai.yaml 属正常，不打扰
+        let (_t, fs) = fileset_from("---\nname: ok-skill\ndescription: d\n---\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-01".to_string()));
+        assert!(rep.issues.is_empty(), "Claude 形态全绿（C1 fixture 回归）: {:?}", rep.issues);
+    }
+
+    #[test]
+    fn cx01_ok_when_openai_yaml_present() {
+        let (_t, fs) = fileset_with_openai_yaml(
+            "---\nname: ok-skill\ndescription: d\n---\n",
+            "interface:\n  display_name: \"Ok Skill\"\n",
+        );
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-01".to_string()));
+    }
+
+    #[test]
+    fn cx02_unknown_fields_dual_track() {
+        let (_t, fs) = fileset_from("---\nname: ok-skill\ndescription: d\ncategory: x\n---\n");
+        let diag = validate_fileset(&fs, Mode::Diagnostic);
+        let d = diag.issues.iter().find(|i| i.rule_id == "CX-02").expect("诊断应提示 CX-02");
+        assert_eq!(d.severity, Severity::Warn);
+        assert!(diag.passed);
+        let strict = validate_fileset(&fs, Mode::Strict);
+        let s = strict.issues.iter().find(|i| i.rule_id == "CX-02").unwrap();
+        assert_eq!(s.severity, Severity::Error);
+        assert!(!strict.passed);
+        assert_eq!(strict.matrix.codex.verdict, Verdict::Fail);
+    }
+
+    #[test]
+    fn cx02_five_whitelist_fields_pass() {
+        let content = "---\nname: ok-skill\ndescription: d\nlicense: MIT\nallowed-tools:\n  - Read\nmetadata:\n  author: x\n---\n";
+        let (_t, fs) = fileset_from(content);
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-02".to_string()), "五字段基线: {:?}", rep.issues);
+    }
+
+    #[test]
+    fn cx03_default_prompt_rules() {
+        let fm = "---\nname: ok-skill\ndescription: d\n---\n";
+        // 含 $skill-name → 过
+        let (_t, fs) = fileset_with_openai_yaml(fm, "interface:\n  default_prompt: \"Use $skill-name to draft a status update.\"\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-03".to_string()));
+        // 不含 → 严格模式 Error
+        let (_t, fs) = fileset_with_openai_yaml(fm, "interface:\n  default_prompt: \"Use this skill to draft a status update.\"\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        let iss = rep.issues.iter().find(|i| i.rule_id == "CX-03").expect("应触发 CX-03");
+        assert_eq!(iss.severity, Severity::Error);
+        assert!(!rep.passed);
+        // 字段缺席 → 不报（官方 schema 视为可选，官方原件即无此字段）
+        let (_t, fs) = fileset_with_openai_yaml(fm, "interface:\n  display_name: \"Ok Skill\"\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-03".to_string()), "缺席不报: {:?}", rep.issues);
+    }
+
+    #[test]
+    fn cx04_short_description_bounds() {
+        let fm = "---\nname: ok-skill\ndescription: d\n---\n";
+        // 官方原件 24 字符（下限豁免）→ 不报
+        let (_t, fs) = fileset_with_openai_yaml(fm, "interface:\n  short_description: \"Create or update a skill\"\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-04".to_string()), "官方原件 24 字符须通过: {:?}", rep.issues);
+        // 上限内（64）→ 不报
+        let (_t, fs) = fileset_with_openai_yaml(fm, &format!("interface:\n  short_description: \"{}\"\n", "x".repeat(64)));
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-04".to_string()));
+        // 超上限（65）→ 严格 Error
+        let (_t, fs) = fileset_with_openai_yaml(fm, &format!("interface:\n  short_description: \"{}\"\n", "x".repeat(65)));
+        let rep = validate_fileset(&fs, Mode::Strict);
+        let iss = rep.issues.iter().find(|i| i.rule_id == "CX-04").expect("应触发 CX-04");
+        assert_eq!(iss.severity, Severity::Error);
+        assert!(!rep.passed);
+        // 字段缺席 → 不报
+        let (_t, fs) = fileset_with_openai_yaml(fm, "interface:\n  display_name: \"Ok Skill\"\n");
+        let rep = validate_fileset(&fs, Mode::Strict);
+        assert!(!rule_ids(&rep).contains(&"CX-04".to_string()));
+    }
+
+    #[test]
+    fn codex_shape_full_clean_fixture() {
+        // 仿官方原件形态：五字段内 frontmatter + openai.yaml 三文案字段合规 → 全绿
+        let (_t, fs) = fileset_with_openai_yaml(
+            "---\nname: ok-skill\ndescription: Does a thing. Use when the user needs the thing done.\nmetadata:\n  short-description: Does the thing\n---\nbody\n",
+            "interface:\n  display_name: \"Ok Skill\"\n  short_description: \"Does the thing when the user needs it done\"\n  default_prompt: \"Use $skill-name to do the thing.\"\n",
+        );
+        for mode in [Mode::Strict, Mode::Diagnostic] {
+            let rep = validate_fileset(&fs, mode);
+            assert!(rep.issues.is_empty(), "Codex 形态应全绿 ({:?}): {:?}", mode, rep.issues);
+            assert!(rep.passed);
+            assert_eq!(rep.matrix.claude.verdict, Verdict::Pass);
+            assert_eq!(rep.matrix.codex.verdict, Verdict::Pass);
+        }
+    }
+
+    #[test]
+    fn real_codex_original_diagnostic_mode() {
+        // 诊断模式永不阻断官方原件（含 Info/Warn 也只提示）
+        let Some(home) = dirs::home_dir() else { return };
+        let dir = home.join(".codex").join("skills").join(".system").join("skill-creator");
+        if !dir.join("SKILL.md").is_file() {
+            return;
+        }
+        let rep = validate_dir(&dir, Mode::Diagnostic);
+        assert!(rep.passed, "诊断模式 passed 恒 true");
+        assert_ne!(rep.matrix.codex.verdict, Verdict::Fail);
     }
 }
