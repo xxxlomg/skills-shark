@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod hub;
 mod import;
 mod pack;
 mod scanner;
