@@ -195,13 +195,14 @@ export function CommandSearch({
                 </div>
                 {g.items.map((it) => {
                   flatIdx += 1;
-                  const selected = flatIdx === sel;
+                  const idx = flatIdx; // 快照：闭包必须捕获每行自己的索引，而非共享变量的终值
+                  const selected = idx === sel;
                   const Icon = it.icon;
                   return (
                     <div
                       key={it.key}
                       data-sel={selected || undefined}
-                      onMouseEnter={() => setSel(flatIdx)}
+                      onMouseEnter={() => setSel(idx)}
                       onClick={() => runItem(it)}
                       className={`flex cursor-pointer items-center gap-3 rounded-[11px] px-3 py-[10px] transition-colors ${
                         selected ? "bg-glass-2" : ""
