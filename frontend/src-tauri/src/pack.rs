@@ -3,6 +3,11 @@
 //! 格式：.skillpack = zip，内含 pack.json（机器层唯一事实源）+ README.md
 //! （人类层）+ skills/<name>/（原样 skill 文件夹）+ 可选 i18n/ sidecar（P2）。
 //! 所有函数接受显式 base 路径，便于测试注入；命令层传 config::packs_dir()。
+//!
+//! 打包前强制校验（PLAN-06 §3.7，C4）：create_pack 对每个入选技能目录跑
+//! 严格模式校验；任一技能有 Error 且 force=false → 拒绝打包并返回结构化清单
+//! （PackCreateError::ValidationFailed）；force=true 放行，所有 Warn/Error
+//! 摘要写入 pack.json 的 validation_warnings（旧包无此字段 → serde default）。
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -61,6 +66,13 @@ pub struct PackManifest {
     #[serde(default)]
     pub i18n: Vec<String>,
     pub skills: Vec<PackSkillEntry>,
+    /// C4（PLAN-06 §3.7）：打包时严格校验的 Warn/Error 摘要，形如
+    /// `[skills/<folder>] <RULE_ID> (<error|warn>): <message>`。
+    /// force 逃生门放行（或仅 Warn 不阻断）时留痕，下游可见"带伤发布"。
+    /// 旧包（v0.1 等）无此字段 → serde default 空；全绿包序列化时省略
+    /// （skip_serializing_if），保持 v1 schema 字节不变。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub validation_warnings: Vec<String>,
 }
 
 /// 前端 PackCard 展示用
@@ -101,6 +113,50 @@ pub struct PackDetect {
     pub author: String,
     pub skill_count: usize,
     pub format_version: u32,
+}
+
+// ---------------------------------------------------------------------------
+// C4：打包前校验的错误结构（PLAN-06 §3.7）
+// ---------------------------------------------------------------------------
+
+/// 单个技能严格校验失败条目。前端按清单渲染（弹窗列出问题 → 修复或 force）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillValidationFailure {
+    /// 打包入参 source_path 原样回显（SKILL.md 绝对路径），前端可据此定位选中项
+    pub skill_path: String,
+    /// 前端传入的显示名
+    pub name: String,
+    /// 严格模式完整 issue 列表（severity 区分阻断项 Error 与建议项 Warn/Info）
+    pub issues: Vec<crate::validate::Issue>,
+}
+
+/// pack_create 错误。序列化为 JSON 后经 tauri InvokeError 下发前端：
+/// `{"kind":"validation_failed","message":..,"failed":[..]}` /
+/// `{"kind":"message","message":..}`。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PackCreateError {
+    /// 严格校验未通过且 force=false；failed 为逐技能问题清单
+    ValidationFailed {
+        /// 人类可读摘要（清单渲染未接线前可直接展示）
+        message: String,
+        failed: Vec<SkillValidationFailure>,
+    },
+    /// 其余打包错误（路径无效、IO 等），保持既有消息形态
+    Message { message: String },
+}
+
+impl PackCreateError {
+    fn msg(message: impl Into<String>) -> Self {
+        Self::Message { message: message.into() }
+    }
+}
+
+/// 既有管线大量 Result<_, String>，统一经 From 升格，`?` 无需逐处改写
+impl From<String> for PackCreateError {
+    fn from(message: String) -> Self {
+        Self::Message { message }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,22 +338,32 @@ fn render_readme(m: &PackManifest) -> String {
 // ---------------------------------------------------------------------------
 
 /// 创建 canonical pack：packs/<id>/（temp 写入后 rename，防半写）。
+///
+/// C4（§3.7）：打包前对每个入选技能目录跑严格校验。任一技能存在 Error 级
+/// issue 且 force=false → 返回 `PackCreateError::ValidationFailed`（结构化
+/// 清单，拒绝时零落盘副作用）；force=true 放行。校验产出的全部 Warn/Error
+/// 摘要写入 manifest.validation_warnings（Warn 永不阻断）。校验自身不可用
+/// （如 SKILL.md 读不了）由 validate 层按 FM-01 Error 覆盖，无特判。
 pub fn create_pack(
     base: &Path,
     name: &str,
     ver: &str,
     author: &str,
     skills: &[PackSkillInput],
-) -> Result<PackInfo, String> {
+    force: bool,
+) -> Result<PackInfo, PackCreateError> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Pack 名称不能为空".to_string());
+        return Err(PackCreateError::msg("Pack 名称不能为空"));
     }
     if skills.is_empty() {
-        return Err("至少选择 1 个技能".to_string());
+        return Err(PackCreateError::msg("至少选择 1 个技能"));
     }
     if skills.len() > MAX_SKILLS_PER_PACK {
-        return Err(format!("单次打包上限 {} 个技能", MAX_SKILLS_PER_PACK));
+        return Err(PackCreateError::msg(format!(
+            "单次打包上限 {} 个技能",
+            MAX_SKILLS_PER_PACK
+        )));
     }
 
     // 解析源目录 + 确定性改名（排序后分配，与选择顺序无关）
@@ -305,7 +371,10 @@ pub fn create_pack(
     for s in skills {
         let md_path = Path::new(&s.source_path);
         if !md_path.is_file() {
-            return Err(format!("技能源文件不存在: {}", s.source_path));
+            return Err(PackCreateError::msg(format!(
+                "技能源文件不存在: {}",
+                s.source_path
+            )));
         }
         let dir = md_path
             .parent()
@@ -330,6 +399,20 @@ pub fn create_pack(
         }
         used.insert(target.clone());
         placed.push((target, dir, s));
+    }
+
+    // C4 校验门（§3.7）：早于一切落盘，拒绝路径零副作用。
+    // warnings 无论是否 force 都记录（"带伤发布"留痕，下游导入方可见）；
+    // force 仅决定是否放行 Error。
+    let (failed, validation_warnings) = validate_selected(&placed);
+    if !force && !failed.is_empty() {
+        return Err(PackCreateError::ValidationFailed {
+            message: format!(
+                "{} 个技能未通过严格校验，已拒绝打包（force 可强制放行，告警将写入 pack.json）",
+                failed.len()
+            ),
+            failed,
+        });
     }
 
     let id = alloc_pack_dir(base, &slugify(name));
@@ -371,6 +454,7 @@ pub fn create_pack(
         summary: build_static_summary(name, author, &summary_inputs),
         i18n: Vec::new(),
         skills: manifest_skills,
+        validation_warnings,
     };
 
     fs::write(
@@ -389,12 +473,49 @@ pub fn create_pack(
     })?;
 
     crate::config::debug_log(&format!(
-        "pack_create: id={} skills={} name={}",
+        "pack_create: id={} skills={} name={} force={} validation_warnings={}",
         id,
         manifest.skills.len(),
-        name
+        name,
+        force,
+        manifest.validation_warnings.len()
     ));
     Ok(to_info(&manifest))
+}
+
+/// C4：对入选技能目录逐一跑严格模式校验（§3.7 打包前强制校验）。
+/// 返回 (失败清单, Warn/Error 摘要行)。摘要行格式：
+/// `[skills/<folder>] <RULE_ID> (<error|warn>): <message>`，folder 用包内
+/// 最终目录名（含改名后的 -2 等），保证与包内路径一致。
+/// 校验自身不可用（SKILL.md 读不了等）已由 validate 层按 FM-01 Error 覆盖。
+fn validate_selected(
+    placed: &[(String, PathBuf, &PackSkillInput)],
+) -> (Vec<SkillValidationFailure>, Vec<String>) {
+    use crate::validate::{Mode, Severity};
+    let mut failed: Vec<SkillValidationFailure> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    for (folder, dir, input) in placed {
+        let report = crate::validate::validate_dir(dir, Mode::Strict);
+        for issue in &report.issues {
+            let sev = match issue.severity {
+                Severity::Error => "error",
+                Severity::Warn => "warn",
+                Severity::Info => continue, // §3.7：仅 Warn/Error 入摘要
+            };
+            warnings.push(format!(
+                "[skills/{}] {} ({}): {}",
+                folder, issue.rule_id, sev, issue.message
+            ));
+        }
+        if !report.passed {
+            failed.push(SkillValidationFailure {
+                skill_path: input.source_path.clone(),
+                name: input.name.clone(),
+                issues: report.issues,
+            });
+        }
+    }
+    (failed, warnings)
 }
 
 // ---------------------------------------------------------------------------
@@ -764,6 +885,7 @@ mod tests {
                 input(&src_root.join("alpha"), "alpha", "desc alpha"),
                 input(&src_root.join("beta"), "beta", "desc beta"),
             ],
+            false,
         )
         .unwrap();
         assert_eq!(info.id, "my-test-pack");
@@ -820,6 +942,7 @@ mod tests {
             "1.0.0",
             "t",
             &[input(&src_root.join("alpha"), "alpha", "d")],
+            false,
         )
         .unwrap();
         let zip_path = tmp.path().join("t.skillpack");
@@ -849,6 +972,7 @@ mod tests {
             "1.0.0",
             "t",
             &[input(&src_root.join("alpha"), "alpha", "d")],
+            false,
         )
         .unwrap();
 
@@ -897,10 +1021,233 @@ mod tests {
                 input(&src_root.join("a/tool"), "tool", "d1"),
                 input(&src_root.join("b/tool"), "tool", "d2"),
             ],
+            false,
         )
         .unwrap();
         assert_eq!(info.skill_count, 2);
         assert!(pack_base.join("dup/skills/tool/SKILL.md").is_file());
         assert!(pack_base.join("dup/skills/tool-2/SKILL.md").is_file());
+    }
+
+    // ==== C4：pack_create 校验集成 + force 逃生门（PLAN-06 §3.7/§3.8）====
+
+    /// 构造触发 FM-04（hyphen-case）严格 Error 的技能。
+    /// 目录名与 name 一致，避免 CL-01 噪声，保证单 issue 可断言
+    fn write_broken_skill(root: &Path) -> PathBuf {
+        let dir = root.join("Bad_Name");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: Bad_Name\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn c4_strict_error_rejected_with_structured_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let bad = write_broken_skill(&src);
+        let pack_base = tmp.path().join("packs");
+
+        let err = create_pack(
+            &pack_base,
+            "Broken",
+            "1.0.0",
+            "t",
+            &[input(&bad, "Bad_Name", "d")],
+            false,
+        )
+        .unwrap_err();
+        let PackCreateError::ValidationFailed { message, failed } = err else {
+            panic!("应为 ValidationFailed，实际: {:?}", err);
+        };
+        assert!(message.contains("1 个技能"), "{}", message);
+        assert_eq!(failed.len(), 1);
+        let f = &failed[0];
+        assert_eq!(f.name, "Bad_Name");
+        // skill_path 原样回显入参 source_path，前端可据此定位选中项
+        assert_eq!(f.skill_path, bad.join("SKILL.md").to_string_lossy().to_string());
+        let fm04 = f.issues.iter().find(|i| i.rule_id == "FM-04").expect("应有 FM-04");
+        assert_eq!(fm04.severity, crate::validate::Severity::Error, "严格模式升 Error");
+        // 拒绝零副作用：pack 目录不落盘
+        assert!(!pack_base.join("broken").exists());
+    }
+
+    #[test]
+    fn c4_force_writes_warnings_into_pack_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let bad = write_broken_skill(&src);
+        let pack_base = tmp.path().join("packs");
+
+        let info = create_pack(
+            &pack_base,
+            "Forced",
+            "1.0.0",
+            "t",
+            &[input(&bad, "Bad_Name", "d")],
+            true,
+        )
+        .unwrap();
+        let m = read_manifest(&pack_base.join(&info.id)).unwrap();
+        assert!(!m.validation_warnings.is_empty());
+        assert!(
+            m.validation_warnings.iter().any(|w| w.contains("[skills/Bad_Name]")
+                && w.contains("FM-04")
+                && w.contains("(error)")),
+            "warnings 应含包内路径+规则号+严重级: {:?}",
+            m.validation_warnings
+        );
+
+        // detect_pack / import_pack 不受新字段影响，告警随包流转
+        let zip = tmp.path().join("f.skillpack");
+        export_pack(&pack_base, &info.id, &zip).unwrap();
+        let detect = detect_pack(&zip).expect("带 validation_warnings 的包仍应可探测");
+        assert_eq!(detect.skill_count, 1);
+        let info2 = import_pack(&tmp.path().join("packs2"), &zip).unwrap();
+        let m2 = read_manifest(&tmp.path().join("packs2").join(&info2.id)).unwrap();
+        assert_eq!(m2.validation_warnings, m.validation_warnings);
+    }
+
+    #[test]
+    fn c4_warn_only_not_blocked_but_recorded() {
+        // CL-01（name/目录名不一致）严格模式仍为 Warn → 不阻断，但留痕
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("src").join("real-dir");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: other-name\ndescription: d\n---\n",
+        )
+        .unwrap();
+        let pack_base = tmp.path().join("packs");
+
+        let info = create_pack(
+            &pack_base,
+            "Warny",
+            "1.0.0",
+            "t",
+            &[input(&dir, "other-name", "d")],
+            false,
+        )
+        .expect("Warn 永不阻断（§3.7）");
+        let m = read_manifest(&pack_base.join(&info.id)).unwrap();
+        assert!(
+            m.validation_warnings.iter().any(|w| w.contains("CL-01") && w.contains("(warn)")),
+            "{:?}",
+            m.validation_warnings
+        );
+    }
+
+    #[test]
+    fn c4_clean_pack_keeps_v1_schema_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        write_skill(&src.join("alpha"), "alpha", "d");
+        let pack_base = tmp.path().join("packs");
+
+        create_pack(&pack_base, "Clean", "1.0.0", "t", &[input(&src.join("alpha"), "alpha", "d")], false)
+            .unwrap();
+        let raw = fs::read_to_string(pack_base.join("clean/pack.json")).unwrap();
+        assert!(!raw.contains("validation_warnings"), "全绿包不应新增字段: {}", raw);
+        let m: PackManifest = serde_json::from_str(&raw).unwrap();
+        assert!(m.validation_warnings.is_empty());
+    }
+
+    #[test]
+    fn c4_legacy_manifest_without_field_loads() {
+        // v0.1 旧包 pack.json 无 validation_warnings → serde default 空
+        let json = r#"{"format_version":1,"id":"legacy","name":"Legacy","ver":"1.0.0","author":"a","created_at":"2026-01-01T00:00:00Z","generator":"SkillsShark 0.1.0","summary":{"source":"static","overview":"o","skills":{}},"i18n":[],"skills":[]}"#;
+        let m: PackManifest = serde_json::from_str(json).unwrap();
+        assert!(m.validation_warnings.is_empty());
+    }
+
+    #[test]
+    fn c4_mixed_skills_report_lists_only_failed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        write_skill(&src.join("alpha"), "alpha", "ok");
+        let bad = write_broken_skill(&src);
+        let pack_base = tmp.path().join("packs");
+        let inputs = [
+            input(&src.join("alpha"), "alpha", "ok"),
+            input(&bad, "Bad_Name", "d"),
+        ];
+
+        let err = create_pack(&pack_base, "Mixed", "1.0.0", "t", &inputs, false).unwrap_err();
+        let PackCreateError::ValidationFailed { failed, .. } = err else {
+            panic!("应为 ValidationFailed");
+        };
+        assert_eq!(failed.len(), 1, "清单只列失败技能");
+        assert_eq!(failed[0].name, "Bad_Name");
+
+        // force 放行后 warnings 仅来自失败技能（干净技能零 issue）
+        let info = create_pack(&pack_base, "Mixed", "1.0.0", "t", &inputs, true).unwrap();
+        let m = read_manifest(&pack_base.join(&info.id)).unwrap();
+        assert!(!m.validation_warnings.is_empty());
+        assert!(
+            m.validation_warnings.iter().all(|w| w.contains("[skills/Bad_Name]")),
+            "{:?}",
+            m.validation_warnings
+        );
+    }
+
+    #[test]
+    fn c4_unreadable_skill_md_rejected_as_error() {
+        // 规格 3：校验本身失败按 Error。SKILL.md 无 frontmatter → FM-01 Error → 拒绝
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("src").join("no-fm");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("SKILL.md"), "plain text without frontmatter\n").unwrap();
+        let pack_base = tmp.path().join("packs");
+
+        let err = create_pack(
+            &pack_base,
+            "NoFm",
+            "1.0.0",
+            "t",
+            &[input(&dir, "no-fm", "d")],
+            false,
+        )
+        .unwrap_err();
+        let PackCreateError::ValidationFailed { failed, .. } = err else {
+            panic!("应为 ValidationFailed");
+        };
+        assert!(failed[0]
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "FM-01" && i.severity == crate::validate::Severity::Error));
+    }
+
+    #[test]
+    fn c4_error_serde_shape_for_frontend() {
+        // 钉死前端契约：kind 标签 + failed 清单（rule_id/severity/message 直用 ValidationIssue 形状）
+        let err = PackCreateError::ValidationFailed {
+            message: "1 个技能未通过严格校验".to_string(),
+            failed: vec![SkillValidationFailure {
+                skill_path: "C:/x/bad/SKILL.md".to_string(),
+                name: "bad".to_string(),
+                issues: vec![crate::validate::Issue {
+                    rule_id: "FM-04".to_string(),
+                    severity: crate::validate::Severity::Error,
+                    message: "msg".to_string(),
+                    path: "SKILL.md".to_string(),
+                    hint: "h".to_string(),
+                    eco: crate::validate::Eco::Codex,
+                }],
+            }],
+        };
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["kind"], "validation_failed");
+        assert_eq!(v["failed"][0]["skill_path"], "C:/x/bad/SKILL.md");
+        assert_eq!(v["failed"][0]["issues"][0]["rule_id"], "FM-04");
+        assert_eq!(v["failed"][0]["issues"][0]["severity"], "error");
+        assert_eq!(v["failed"][0]["issues"][0]["message"], "msg");
+
+        let v2 = serde_json::to_value(PackCreateError::msg("boom")).unwrap();
+        assert_eq!(v2["kind"], "message");
+        assert_eq!(v2["message"], "boom");
     }
 }

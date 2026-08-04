@@ -431,14 +431,26 @@ pub fn packs_list() -> Vec<pack::PackInfo> {
     pack::list_packs(&config::packs_dir())
 }
 
+/// 创建 Skill Pack（C4：打包前强制校验，PLAN-06 §3.7）。
+/// force: 逃生门，缺省 false（旧前端调用不传即为 false，serde Option 缺参 → None）。
+/// 校验失败返回 `pack::PackCreateError::ValidationFailed`（结构化清单），
+/// 经 tauri `impl<T: Serialize> From<T> for InvokeError` 原样下发前端。
 #[tauri::command]
 pub fn pack_create(
     name: String,
     ver: String,
     author: String,
     skills: Vec<pack::PackSkillInput>,
-) -> Result<pack::PackInfo, String> {
-    pack::create_pack(&config::packs_dir(), &name, &ver, &author, &skills)
+    force: Option<bool>,
+) -> Result<pack::PackInfo, pack::PackCreateError> {
+    pack::create_pack(
+        &config::packs_dir(),
+        &name,
+        &ver,
+        &author,
+        &skills,
+        force.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
