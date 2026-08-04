@@ -185,6 +185,74 @@ pub fn detect_paths() -> Vec<ScanPathItem> {
 }
 
 // ---------------------------------------------------------------------------
+// Hub 引用层（PLAN-06 §2.7，B5 接线）
+// ---------------------------------------------------------------------------
+
+/// linkable 目标工具清单（引用对话框的下拉源）：注册表外部工具，
+/// 排除 app_owned（builtin/imported/authored 不可作落点）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LinkableTool {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    /// 当前是否有候选目录已存在（供 UI 提示「将新建目录」）
+    pub has_existing_dir: bool,
+}
+
+#[tauri::command]
+pub fn hub_linkable_tools() -> Vec<LinkableTool> {
+    let cfg = config::load_config();
+    cfg.tools
+        .iter()
+        .filter(|t| !t.app_owned && t.linkable)
+        .map(|t| LinkableTool {
+            has_existing_dir: t.paths.iter().any(|c| {
+                config::expand_path(c).map(|p| p.is_dir()).unwrap_or(false)
+            }),
+            id: t.id.clone(),
+            name: t.name.clone(),
+            enabled: t.enabled,
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn hub_link_skill(
+    source_path: String,
+    target_tool_id: String,
+    mode: hub::LinkMode,
+) -> Result<hub::HubLink, String> {
+    hub::link_skill(
+        &config::get_data_dir(),
+        Path::new(&source_path),
+        &target_tool_id,
+        mode,
+    )
+}
+
+#[tauri::command]
+pub fn hub_unlink_skill(link_id: String) -> Result<hub::HubLink, String> {
+    hub::unlink_skill(&config::get_data_dir(), &link_id)
+}
+
+#[tauri::command]
+pub fn hub_convert_to_copy(link_id: String) -> Result<hub::HubLink, String> {
+    hub::convert_to_copy(&config::get_data_dir(), &link_id)
+}
+
+#[tauri::command]
+pub fn hub_links_status() -> Vec<hub::LinkStatus> {
+    hub::links_status(&config::get_data_dir())
+}
+
+/// 触发一次扫描以刷新 junction 落点后的技能列表（前端 link/unlink 后调用）。
+/// 复用 scan_skills 逻辑，含账本 join。
+#[tauri::command]
+pub fn hub_rescan() -> Vec<Skill> {
+    scan_skills()
+}
+
+// ---------------------------------------------------------------------------
 // 导入（PLAN-04 §3，Phase 1：zip）
 // ---------------------------------------------------------------------------
 
