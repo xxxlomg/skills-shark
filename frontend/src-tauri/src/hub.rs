@@ -163,13 +163,14 @@ pub fn link_skill_to_dir(
     target_tool_id: &str,
     mode: LinkMode,
 ) -> Result<HubLink, String> {
-    // 源校验：目录 + 含 SKILL.md（枢纽只处理合法 skill，§1.6 生态白名单前提）
+    // 源校验：目录 + （单技能 含 SKILL.md ｜ 集合 递归含 ≥1 个 SKILL.md）。
+    // §2.8：source 可为单技能目录或整集合目录；枢纽只处理合法 skill 生态内容。
     if !source.is_dir() {
         return Err(format!("源不是目录: {}", source.display()));
     }
-    if !source.join("SKILL.md").is_file() {
+    if !is_skill_or_collection_root(source) {
         return Err(format!(
-            "源缺少 SKILL.md，不是有效技能: {}",
+            "源不含 SKILL.md（单技能或其下任意集合），不是有效引用源: {}",
             source.display()
         ));
     }
@@ -338,6 +339,47 @@ fn dest_exists(p: &Path) -> bool {
 /// junction v2 的 exists 返回 io::Result<bool>；查询失败按「不是 junction」处理
 fn is_junction(p: &Path) -> bool {
     junction::exists(p).unwrap_or(false)
+}
+
+/// 引用源合法性：单技能（顶层含 SKILL.md）或集合（其下递归含 ≥1 个 SKILL.md）。
+/// 深度上限对齐扫描器 MAX_SCAN_DEPTH=3，避免把无关深层目录误判为集合。
+/// 内部 junction/symlink 不穿透探测（防循环、防越界扫到出处之外的内容）。
+fn is_skill_or_collection_root(p: &Path) -> bool {
+    if p.join("SKILL.md").is_file() {
+        return true;
+    }
+    contains_skill_md(p, 0)
+}
+
+fn contains_skill_md(dir: &Path, depth: usize) -> bool {
+    if depth >= 3 {
+        return false;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        // 不穿透 junction/symlink：防循环、防越界探测到出处之外的内容。
+        // （Windows junction 在 symlink_metadata 下仍报目录，须显式判定。）
+        if is_junction(&path)
+            || fs::symlink_metadata(&path)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+        {
+            continue;
+        }
+        if path.is_dir() {
+            if path.join("SKILL.md").is_file() {
+                return true;
+            }
+            if contains_skill_md(&path, depth + 1) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// 递归复制技能目录。内部 symlink/junction 一律复制实体（不扩散链接结构）。
@@ -723,5 +765,99 @@ mod tests {
         assert!(resolve_target_root(&tools, "builtin").is_err());
         // 未知工具拒绝
         assert!(resolve_target_root(&tools, "nope").is_err());
+    }
+
+    /// 造一个集合目录：coll/<skill-a, skill-b>，各自含 SKILL.md
+    fn make_collection(root: &Path, name: &str) -> PathBuf {
+        let coll = root.join(name);
+        fs::create_dir_all(&coll).unwrap();
+        make_skill(&coll, "skill-a");
+        make_skill(&coll, "skill-b");
+        coll
+    }
+
+    #[test]
+    fn collection_link_junctions_whole_tree() {
+        let root = tmp_root("coll-link");
+        let src_root = root.join("src");
+        let tgt_root = root.join("tgt");
+        fs::create_dir_all(&src_root).unwrap();
+        fs::create_dir_all(&tgt_root).unwrap();
+        let coll = make_collection(&src_root, "superpowers");
+        let base = root.join("data");
+
+        let link = link_skill_to_dir(&base, &coll, &tgt_root, "codex", LinkMode::Link).unwrap();
+        assert_eq!(link.skill_name, "superpowers");
+        let dest = tgt_root.join("superpowers");
+        assert!(is_junction(&dest), "集合必须整体创建为 junction");
+        assert!(dest.join("skill-a").join("SKILL.md").is_file(), "嵌套技能透过 junction 可读");
+        assert!(dest.join("skill-b").join("SKILL.md").is_file());
+
+        // 解除：junction 移除，源集合完好
+        unlink_skill(&base, &link.id).unwrap();
+        assert!(!dest_exists(&dest));
+        assert!(coll.join("skill-a").join("SKILL.md").is_file(), "源集合不受影响");
+        cleanup(&root);
+    }
+
+    #[test]
+    fn collection_copy_includes_nested_skills() {
+        let root = tmp_root("coll-copy");
+        let src_root = root.join("src");
+        let tgt_root = root.join("tgt");
+        fs::create_dir_all(&src_root).unwrap();
+        let coll = make_collection(&src_root, "bundle");
+
+        let link = link_skill_to_dir(&root.join("data"), &coll, &tgt_root, "cursor", LinkMode::Copy).unwrap();
+        let dest = tgt_root.join("bundle");
+        assert!(!is_junction(&dest));
+        assert!(dest.join("skill-a").join("SKILL.md").is_file(), "嵌套技能完整复制");
+        assert!(dest.join("skill-b").join("references").join("r.md").is_file());
+        assert_eq!(link.mode, LedgerMode::Copy);
+
+        // 独立性：改副本不影响源
+        fs::write(dest.join("skill-a").join("SKILL.md"), "changed").unwrap();
+        assert!(fs::read_to_string(coll.join("skill-a").join("SKILL.md")).unwrap().contains("body"));
+        cleanup(&root);
+    }
+
+    #[test]
+    fn collection_validation_rejects_invalid_sources() {
+        let root = tmp_root("coll-bad");
+        let src_root = root.join("src");
+        let tgt_root = root.join("tgt");
+        fs::create_dir_all(&src_root).unwrap();
+        fs::create_dir_all(&tgt_root).unwrap();
+        let base = root.join("data");
+
+        // 1) 空目录 → 拒绝
+        let empty = src_root.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        assert!(link_skill_to_dir(&base, &empty, &tgt_root, "codex", LinkMode::Link).is_err());
+
+        // 2) 唯一 SKILL.md 藏在嵌套 junction 之后 → 不穿透探测 → 拒绝
+        let outside = root.join("outside");
+        make_skill(&outside, "hidden-skill");
+        let coll = src_root.join("masked");
+        fs::create_dir_all(&coll).unwrap();
+        junction::create(&outside.join("hidden-skill"), &coll.join("linked-in")).unwrap();
+        assert!(
+            link_skill_to_dir(&base, &coll, &tgt_root, "codex", LinkMode::Link).is_err(),
+            "嵌套 junction 背后的 SKILL.md 不得作为集合合法性依据"
+        );
+        junction::delete(coll.join("linked-in")).unwrap();
+
+        // 3) 超深度（SKILL.md 在 4 层以下）→ 拒绝（对齐扫描深度上限 3）
+        let deep = src_root.join("deep");
+        let mut d = deep.clone();
+        for seg in ["l1", "l2", "l3", "l4"] {
+            d = d.join(seg);
+        }
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("SKILL.md"), "---\nname: deep\n---\n").unwrap();
+        assert!(link_skill_to_dir(&base, &deep, &tgt_root, "codex", LinkMode::Link).is_err());
+
+        assert!(load_ledger(&base).links.is_empty(), "失败路径不得留账本记录");
+        cleanup(&root);
     }
 }
