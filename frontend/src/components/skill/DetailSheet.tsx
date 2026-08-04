@@ -389,7 +389,7 @@ export function DetailSheet({
                 )}
                 {translating
                   ? "翻译中..."
-                  : skill.has_translation
+                  : skill.has_translation || skill.translation_lost
                     ? "重新翻译"
                     : "翻译"}
               </button>
@@ -469,7 +469,17 @@ export function DetailSheet({
             {!loading && !translating && fallback && rawOriginal && (
               <>
                 <div className="fallback-notice">
-                  ⏳ <strong>翻译尚未生成</strong>：点击上方「翻译」按钮生成中文译文。
+                  {skill.translation_lost ? (
+                    <>
+                      ⚠️ <strong>译文丢失</strong>
+                      ：该技能曾翻译过，但译文文件已不存在。点击上方「重新翻译」可再生成。
+                    </>
+                  ) : (
+                    <>
+                      ⏳ <strong>翻译尚未生成</strong>
+                      ：点击上方「翻译」按钮生成中文译文。
+                    </>
+                  )}
                   {!hasLLMKey && (
                     <>
                       {" "}请先在设置中配置 API Key（<code>⚙️</code> 图标）。

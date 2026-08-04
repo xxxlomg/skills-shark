@@ -1,6 +1,9 @@
-import { Download, Package, Plus } from "lucide-react";
+import { Download, Package, Plus, Box, Trash2 } from "lucide-react";
 import { PackCard, type PackAction } from "./PackCard";
+import { LayoutToggle } from "./LayoutToggle";
+import { Tip } from "@/components/common/Tip";
 import type { PackInfo } from "@/lib/api";
+import type { LayoutMode } from "@/hooks/useSkills";
 import { GhostCard } from "@/components/common/GhostCard";
 import { SectionHead } from "@/components/common/SectionHead";
 
@@ -9,16 +12,30 @@ interface PacksViewProps {
   onCreatePack: () => void;
   onImportPack: () => void;
   onPackAction: (action: PackAction, pack: PackInfo) => void;
+  layout: LayoutMode;
+  onLayoutChange: (mode: LayoutMode) => void;
 }
 
-/** Skill Packs 视图：Pack 卡片网格 + 导入 ghost 卡（PLAN-05 P1 真实数据）。 */
+/** Skill Packs 视图：卡片网格 / 列表行 双布局 + 导入 ghost 卡（PLAN-05 P1 真实数据）。 */
 export function PacksView({
   packs,
   onCreatePack,
   onImportPack,
   onPackAction,
+  layout,
+  onLayoutChange,
 }: PacksViewProps) {
   let idx = 0;
+
+  const importGhost = (
+    <GhostCard
+      icon={<Download className="h-[22px] w-[22px]" />}
+      title="导入 .skillpack"
+      subtitle="拖入或选择打包文件"
+      index={idx++}
+      onClick={onImportPack}
+    />
+  );
 
   return (
     <div className="relative py-6">
@@ -30,6 +47,8 @@ export function PacksView({
           <Plus className="h-3.5 w-3.5" />
           新建 Pack
         </button>
+        {/* 布局切换固定最右，远离主操作按钮防误触 */}
+        <LayoutToggle value={layout} onChange={onLayoutChange} />
       </SectionHead>
 
       {packs.length === 0 ? (
@@ -53,27 +72,72 @@ export function PacksView({
               index={idx++}
               onClick={onCreatePack}
             />
-            <GhostCard
-              icon={<Download className="h-[22px] w-[22px]" />}
-              title="导入 .skillpack"
-              subtitle="拖入或选择打包文件"
-              index={idx++}
-              onClick={onImportPack}
-            />
+            {importGhost}
           </div>
         </div>
-      ) : (
+      ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {/* 导入入口前置：Pack 再多也无需滚动即可触达 */}
+          {importGhost}
           {packs.map((p) => (
             <PackCard key={p.id} pack={p} index={idx++} onAction={onPackAction} />
           ))}
-          <GhostCard
-            icon={<Download className="h-[22px] w-[22px]" />}
-            title="导入 .skillpack"
-            subtitle="拖入或选择打包文件"
-            index={idx++}
-            onClick={onImportPack}
-          />
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {importGhost}
+          {packs.map((p) => (
+            <div
+              key={p.id}
+              className="glass-card flex flex-wrap items-center gap-x-4 gap-y-2 px-[18px] py-[14px]"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-stroke bg-glass-2 text-amber">
+                  <Package className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-display text-[14.5px] font-semibold text-text-primary">
+                      {p.name}
+                    </span>
+                    <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] font-mono text-[10.5px] text-brand">
+                      v{p.ver}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[11.5px] text-text-tertiary">
+                    by {p.author || "未知"} · {p.skill_count} 个技能 · {p.translated} 已翻译
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  className="mbtn primary"
+                  onClick={() => onPackAction("install", p)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  安装
+                </button>
+                <button
+                  type="button"
+                  className="mbtn"
+                  onClick={() => onPackAction("export", p)}
+                >
+                  <Box className="h-3.5 w-3.5" />
+                  导出
+                </button>
+                <Tip label="删除 Pack">
+                  <button
+                    type="button"
+                    className="mbtn"
+                    onClick={() => onPackAction("delete", p)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

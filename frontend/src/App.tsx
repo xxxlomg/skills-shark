@@ -130,6 +130,13 @@ function App() {
     setLinkInitialSkillId(null);
   }, []);
 
+  // 建链成功后联动刷新：技能扫描 + Hub 台账令牌（修复台账不自动刷新）
+  const [hubToken, setHubToken] = useState(0);
+  const handleLinked = useCallback(() => {
+    refresh();
+    setHubToken((t) => t + 1);
+  }, [refresh]);
+
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
   }, []);
@@ -251,6 +258,11 @@ function App() {
     [skills]
   );
 
+  const lostCount = useMemo(
+    () => skills.filter((s) => s.translation_lost).length,
+    [skills]
+  );
+
   // 首屏加载结束 → 淡出启动蒙版
   useEffect(() => {
     if (!loading) window.hideSplash?.();
@@ -305,17 +317,23 @@ function App() {
             total={totalSkills}
             translated={translatedCount}
             outdated={0}
+            lost={lostCount}
             packCount={packs.length}
           />
 
           <TabNav activeTab={tab} onChange={setTab} />
 
           {/* 视图分发：按视图注册表 id 路由（PLAN-06 §7.6）。
-              新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。 */}
+              新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。
+              key={tab} 触发轻量淡入（animate-view-enter），缓解 tab 切换生硬感。 */}
+          <div key={tab} className="animate-view-enter">
           {tab === "hub" ? (
             <HubView
               onOpenLink={() => openLinkDialog()}
               onSkillsRefresh={refresh}
+              refreshToken={hubToken}
+              layout={layout}
+              onLayoutChange={handleLayoutChange}
             />
           ) : tab === "packs" ? (
             <PacksView
@@ -323,6 +341,8 @@ function App() {
               onCreatePack={handleCreatePack}
               onImportPack={handleImportPack}
               onPackAction={handlePackAction}
+              layout={layout}
+              onLayoutChange={handleLayoutChange}
             />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
@@ -347,7 +367,6 @@ function App() {
               onSkillClick={handleSkillClick}
               onGitImport={handleGitImport}
               onZipImport={handleZipImport}
-              onCreatePack={handleCreatePack}
             />
           ) : currentGroup ? (
             <CategoryView
@@ -364,6 +383,7 @@ function App() {
           ) : (
             <EmptyState />
           )}
+          </div>
         </div>
       </main>
 
@@ -383,7 +403,7 @@ function App() {
           skills={skills}
           initialSkillId={linkInitialSkillId}
           onClose={closeLinkDialog}
-          onLinked={refresh}
+          onLinked={handleLinked}
         />
       )}
 

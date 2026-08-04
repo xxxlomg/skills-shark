@@ -1,4 +1,4 @@
-import { Archive, GitBranch, Plus } from "lucide-react";
+import { Archive, GitBranch } from "lucide-react";
 import { FolderCard } from "./FolderCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { GhostCard } from "@/components/common/GhostCard";
@@ -14,7 +14,6 @@ interface HomeViewProps {
   onSkillClick: (skill: Skill) => void;
   onGitImport: () => void;
   onZipImport: () => void;
-  onCreatePack: () => void;
 }
 
 export function HomeView({
@@ -25,7 +24,6 @@ export function HomeView({
   onSkillClick,
   onGitImport,
   onZipImport,
-  onCreatePack,
 }: HomeViewProps) {
   const totalSkills = groups.reduce((sum, g) => sum + g.skills.length, 0);
 
@@ -44,16 +42,7 @@ export function HomeView({
         <EmptyState />
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {groups.map((g) => (
-            <FolderCard
-              key={g.label}
-              group={g}
-              index={idx++}
-              layout="grid"
-              onClick={() => onFolderClick(g.label)}
-              onSkillClick={onSkillClick}
-            />
-          ))}
+          {/* 导入入口前置：技能再多也无需滚动即可触达 */}
           <GhostCard
             icon={<Archive className="h-[22px] w-[22px]" />}
             title="导入本地 Zip"
@@ -68,25 +57,19 @@ export function HomeView({
             index={idx++}
             onClick={onGitImport}
           />
-          <GhostCard
-            icon={<Plus className="h-[22px] w-[22px]" />}
-            title="创建 Skill Pack"
-            subtitle="组合打包你的技能"
-            index={idx++}
-            onClick={onCreatePack}
-          />
-        </div>
-      ) : (
-        <div className="flex flex-col gap-[10px]">
           {groups.map((g) => (
             <FolderCard
               key={g.label}
               group={g}
               index={idx++}
-              layout="list"
+              layout="grid"
               onClick={() => onFolderClick(g.label)}
+              onSkillClick={onSkillClick}
             />
           ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-[10px]">
           <GhostCard
             layout="list"
             icon={<Archive className="h-5 w-5" />}
@@ -103,14 +86,15 @@ export function HomeView({
             index={idx++}
             onClick={onGitImport}
           />
-          <GhostCard
-            layout="list"
-            icon={<Plus className="h-5 w-5" />}
-            title="创建 Skill Pack"
-            subtitle="组合打包你的技能"
-            index={idx++}
-            onClick={onCreatePack}
-          />
+          {groups.map((g) => (
+            <FolderCard
+              key={g.label}
+              group={g}
+              index={idx++}
+              layout="list"
+              onClick={() => onFolderClick(g.label)}
+            />
+          ))}
         </div>
       )}
     </div>

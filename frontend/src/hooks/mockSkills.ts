@@ -16,6 +16,7 @@ const mk = (
     zh?: string;
     dz?: string;
     trans?: boolean;
+    lost?: boolean;
     del?: boolean;
     coll?: string | null;
   } = {}
@@ -33,7 +34,8 @@ const mk = (
   other_sources: [],
   hub_linked: false,
   hub_link_id: null,
-  has_translation: opts.trans ?? false,
+  has_translation: (opts.trans ?? false) && !(opts.lost ?? false),
+  translation_lost: opts.lost ?? false,
   title_zh: opts.zh ?? "",
   description_zh: opts.dz ?? "",
   source_deleted: opts.del ?? false,
@@ -50,7 +52,7 @@ export const MOCK_SKILLS: Skill[] = [
   mk("c2", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Claude", { zh: "提交信息生成", trans: true }),
   mk("c3", "test-gen", "🧪", "为给定函数生成边界覆盖的单元测试", "Claude", { zh: "单测生成", trans: true, coll: "Claude/testing" }),
   mk("c4", "spring-helper", "🍃", "Spring Boot 配置与依赖排错助手", "Claude", { trans: false, coll: "Claude/testing" }),
-  mk("c5", "refactor", "🔧", "在保证行为不变的前提下给出重构建议", "Claude", { zh: "重构助手", trans: true }),
+  mk("c5", "refactor", "🔧", "在保证行为不变的前提下给出重构建议", "Claude", { zh: "重构助手", lost: true }),
 
   // OpenCode（8，技能最多 → 精选宽卡；含未译、删除态、合集）
   mk("o1", "browser-cdp", "🌐", "连接运行中的 Chrome，共享登录态", "OpenCode", { zh: "浏览器 CDP", trans: true }),

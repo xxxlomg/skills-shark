@@ -6,10 +6,11 @@ import {
 } from "@/components/ui/tooltip";
 
 interface TipProps {
-  label: string;
+  /** 提示内容：字符串或多行节点（如路径对） */
+  label: ReactNode;
   children: ReactNode;
   /** 气泡相对子元素的位置，默认下方（卡片顶部空间常被 tab 占用） */
-  side?: "top" | "bottom";
+  side?: "top" | "bottom" | "left" | "right";
 }
 
 /**
@@ -27,7 +28,7 @@ export function Tip({ label, children, side = "bottom" }: TipProps) {
       <TooltipContent
         side={side}
         sideOffset={6}
-        className="tip-bubble max-w-[240px] rounded-[10px] border-0 px-[10px] py-[5px] text-[11px] leading-snug"
+        className="tip-bubble max-w-[340px] rounded-[10px] border-0 px-[10px] py-[5px] text-[11px] leading-snug"
       >
         {label}
       </TooltipContent>

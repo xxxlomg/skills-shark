@@ -43,6 +43,10 @@ pub struct Skill {
     #[serde(default)]
     pub hub_link_id: Option<String>,
     pub has_translation: bool,
+    /// 元数据记录存在且源未删除，但译文 .md 丢失/为空。
+    /// 卡片状态如实降级为「待翻译」+ 此标记驱动「译文丢失」提示。
+    #[serde(default)]
+    pub translation_lost: bool,
     pub title_zh: String,
     /// 译文中 frontmatter description 的中文版本（扫描时从译文文件派生，
     /// 无译文时为空串）。卡片/详情描述优先展示它。
@@ -372,13 +376,50 @@ fn register_skill(
                 m.clone()
             })
     });
-    let has_translation = tmeta.as_ref().map(|m| !m.source_deleted).unwrap_or(false);
+    // 历史残留自愈：meta 已是新键（直取命中）但 md 仍旧名——过去 rekey 的
+    // rename 失败被吞所致。正向重算 v0.1 旧键候选，旧名 md 存在即改名修复，
+    // 本次扫描随后用新 id 直接命中。真丢失（旧名也不在）则落入 lost 判定。
+    if migrated_from.is_none()
+        && tmeta.is_some()
+        && translations::read_translated_content(&skill_id)
+            .map(|t| t.trim().is_empty())
+            .unwrap_or(true)
+    {
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(old) = imported_old_id(base, &rel) {
+            candidates.push(old);
+        }
+        if let Some(lv) = &legacy_virtual {
+            candidates.push(lv.clone());
+        }
+        candidates.push(legacy_path.clone());
+        for old in candidates {
+            if old != skill_id && translations::repair_rename(&old, &skill_id) {
+                config::debug_log(&format!("translation md repaired: {} -> {}", old, skill_id));
+                break;
+            }
+        }
+    }
+
+    // 状态以译文内容实际存在为准：meta 在但 .md 丢失/为空 → lost（卡片不再谎报「已翻译」）。
+    // 迁移当次 md 文件还是旧名，用旧 id 读；rekey 落盘后下次自然用新 id。
+    let read_id = migrated_from.as_ref().unwrap_or(&skill_id);
+    let translation_lost = tmeta
+        .as_ref()
+        .map(|m| {
+            !m.source_deleted
+                && translations::read_translated_content(read_id)
+                    .map(|t| t.trim().is_empty())
+                    .unwrap_or(true)
+        })
+        .unwrap_or(false);
+    let has_translation = tmeta.as_ref().map(|m| !m.source_deleted).unwrap_or(false)
+        && !translation_lost;
     let title_zh = tmeta
         .map(|m| m.title_zh.clone())
         .unwrap_or_default();
-    // 迁移当次 md 文件还是旧名，用旧 id 读译文；rekey 落盘后下次自然用新 id
     let description_zh = if has_translation {
-        extract_description_zh(migrated_from.as_ref().unwrap_or(&skill_id))
+        extract_description_zh(read_id)
     } else {
         String::new()
     };
@@ -398,6 +439,7 @@ fn register_skill(
         hub_linked: is_reparse_dir(child),
         hub_link_id: None, // commands 层 join 账本填充
         has_translation,
+        translation_lost,
         title_zh,
         description_zh,
         source_deleted: false,
@@ -564,6 +606,54 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         assert!(!link.id.is_empty());
     }
+
+    /// 历史残留自愈：meta 已是新键但 md 仍旧名（过去 rekey rename 失败被吞）→
+    /// 扫描时正向重算旧键并改名，状态恢复「已翻译」。
+    #[test]
+    fn repair_legacy_md_under_new_meta_key() {
+        // 独立临时数据目录，绝不碰真实用户数据
+        let data = tmp_root("repair-data");
+        crate::config::set_data_dir_for_test(data.clone());
+        let tdir = data.join("translations");
+        fs::create_dir_all(&tdir).unwrap();
+
+        let root = tmp_root("repair");
+        let tool = root.join("t");
+        make_skill(&tool, "repair-me");
+
+        // 先扫一次拿新 id 与 legacy 路径哈希（此时 meta 为空，无副作用）
+        let first = scan_all_skills(&[target(&tool, "claude-code", "Claude Code")]);
+        let sk = first.iter().find(|s| s.folder_name == "repair-me").unwrap();
+        let new_id = sk.id.clone();
+        let legacy = make_skill_id(&sk.source_path);
+        let src_json = sk.source_path.replace('\\', "\\\\");
+
+        // 构造残留态：meta 新键 + md 旧名
+        fs::write(
+            data.join("translations.json"),
+            format!(
+                "{{\"{}\":{{\"source_path\":\"{}\",\"scan_label\":\"Claude Code\",\"source_hash\":\"h\",\"translated_at\":\"t\",\"model\":\"m\",\"title_zh\":\"修\",\"source_deleted\":false}}}}",
+                new_id, src_json
+            ),
+        )
+        .unwrap();
+        fs::write(
+            tdir.join(format!("{}.md", legacy)),
+            "<!-- anchor:original -->\nx\n<!-- anchor:translated -->\n修复译文",
+        )
+        .unwrap();
+
+        let skills = live(scan_all_skills(&[target(&tool, "claude-code", "Claude Code")]));
+        let sk = skills.iter().find(|s| s.folder_name == "repair-me").unwrap();
+        assert!(sk.has_translation, "repair pass 应恢复已翻译状态");
+        assert!(!sk.translation_lost);
+        assert!(
+            tdir.join(translations::md_filename(&new_id)).exists(),
+            "md 应改名到新键（percent-encode 文件名）"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -651,7 +741,12 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
                 other_sources: vec![],
                 hub_linked: false,
                 hub_link_id: None,
-                has_translation: true,
+                has_translation: translations::read_translated_content(sid)
+                    .map(|t| !t.trim().is_empty())
+                    .unwrap_or(false),
+                translation_lost: translations::read_translated_content(sid)
+                    .map(|t| t.trim().is_empty())
+                    .unwrap_or(true),
                 title_zh: tmeta.title_zh.clone(),
                 description_zh: extract_description_zh(sid),
                 source_deleted: true,

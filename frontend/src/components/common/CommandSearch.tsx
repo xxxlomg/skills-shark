@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Search, Folder, GitBranch, Plus, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Skill, SkillGroup } from "@/hooks/useSkills";
+import { skillStatus, STATUS_TEXT, type Skill, type SkillGroup } from "@/hooks/useSkills";
 
 type CmdItem =
   | { kind: "skill"; key: string; emoji: string | null; icon?: undefined; title: string; sub: string; tag: string; skill: Skill }
@@ -47,7 +47,7 @@ export function CommandSearch({
         emoji: s.emoji,
         title: s.title_zh || s.name,
         sub: `${s.name} · ${g.label}`,
-        tag: s.has_translation ? "已翻译" : "待翻译",
+        tag: STATUS_TEXT[skillStatus(s)],
         skill: s,
       }))
     );

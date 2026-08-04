@@ -75,12 +75,26 @@ fn ledger_path(base: &Path) -> PathBuf {
     base.join("links.json")
 }
 
+/// Windows `fs::canonicalize` 返回 UNC 扩展路径前缀（`\\?\C:\…` / `\\?\UNC\…`），
+/// 账本落盘与展示前剥离，并统一分隔符为反斜杠（junction/文件 API 均接受）。
+fn clean_path_str(p: &Path) -> String {
+    let s = p.to_string_lossy().to_string();
+    let stripped = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", rest)
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        s
+    };
+    stripped.replace('/', "\\")
+}
+
 pub fn load_ledger(base: &Path) -> LinksLedger {
     let path = ledger_path(base);
     if !path.exists() {
         return LinksLedger::default();
     }
-    fs::read_to_string(&path)
+    let mut ledger = fs::read_to_string(&path)
         .ok()
         .and_then(|text| serde_json::from_str::<LinksLedger>(&text).ok())
         .unwrap_or_else(|| {
@@ -89,7 +103,13 @@ pub fn load_ledger(base: &Path) -> LinksLedger {
                 path.display()
             ));
             LinksLedger::default()
-        })
+        });
+    // 兼容旧账本：剥离 canonicalize 遗留的 UNC 扩展前缀并统一分隔符
+    for l in ledger.links.iter_mut() {
+        l.source = clean_path_str(Path::new(&l.source));
+        l.target = clean_path_str(Path::new(&l.target));
+    }
+    ledger
 }
 
 pub fn save_ledger(base: &Path, ledger: &LinksLedger) -> Result<(), String> {
@@ -190,7 +210,7 @@ pub fn link_skill_to_dir(
             dest.display()
         ));
     }
-    let source_str = source_abs.to_string_lossy().to_string();
+    let source_str = clean_path_str(&source_abs);
     if ledger
         .links
         .iter()
@@ -235,7 +255,7 @@ pub fn link_skill_to_dir(
         id: gen_link_id(&source_abs, &dest),
         skill_name: name,
         source: source_str,
-        target: dest.to_string_lossy().to_string(),
+        target: clean_path_str(&dest),
         target_tool: target_tool_id.to_string(),
         mode: ledger_mode,
         created_at: chrono::Utc::now().to_rfc3339(),

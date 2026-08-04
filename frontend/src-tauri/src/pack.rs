@@ -662,6 +662,64 @@ pub fn install_pack(pack_base: &Path, imported_base: &Path, id: &str) -> Result<
 mod tests {
     use super::*;
 
+    /// 只读核对真实数据目录的 packs 能否被当前代码加载（无数据机器自动跳过）。
+    #[test]
+    fn real_packs_dir_loads_existing_pack() {
+        let Some(up) = std::env::var_os("USERPROFILE") else {
+            return;
+        };
+        let base = PathBuf::from(up).join("AppData/Roaming/Skills Shark/packs");
+        if !base.is_dir() {
+            return;
+        }
+        let list = list_packs(&base);
+        assert!(
+            list.iter().any(|p| p.id == "test"),
+            "真实 packs 目录必须加载 test pack，实际: {:?}",
+            list.iter().map(|p| p.id.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    /// 只读端到端核对：真实 config.json 的 tools → 扫描目标含 imported →
+    /// 已安装 pack 技能（internal-comms）能进扫描结果。无数据机器自动跳过。
+    #[test]
+    fn real_config_scans_installed_pack_skills() {
+        let Some(up) = std::env::var_os("USERPROFILE") else {
+            return;
+        };
+        let root = PathBuf::from(up).join("AppData/Roaming/Skills Shark");
+        let Ok(text) = std::fs::read_to_string(root.join("config.json")) else {
+            return;
+        };
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let tools: Vec<crate::config::ToolEntry> =
+            serde_json::from_value(v["tools"].clone()).unwrap();
+        // config 层：imported 工具在、启用、app_owned（生产环境由此派生扫描目标）
+        assert!(
+            tools
+                .iter()
+                .any(|t| t.id == "imported" && t.enabled && t.app_owned),
+            "config.json 的 imported 工具缺失或未启用"
+        );
+        // scanner 层：显式以真实 imported 目录为目标（测试环境不能走
+        // get_data_dir 全局，它会回退项目 _data）
+        let imported_dir = root.join("imported");
+        if !imported_dir.is_dir() {
+            return;
+        }
+        let targets = vec![crate::config::ScanTarget {
+            path: imported_dir.to_string_lossy().to_string(),
+            label: "导入".into(),
+            tool_id: "imported".into(),
+        }];
+        let skills = crate::scanner::scan_all_skills(&targets);
+        assert!(
+            skills.iter().any(|s| s.folder_name == "internal-comms"),
+            "已安装 pack 技能未进扫描结果: {:?}",
+            skills.iter().map(|s| s.folder_name.clone()).collect::<Vec<_>>()
+        );
+    }
+
     fn write_skill(dir: &Path, name: &str, desc: &str) {
         fs::create_dir_all(dir).unwrap();
         fs::write(

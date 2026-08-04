@@ -37,6 +37,8 @@ export interface Skill {
   /** 账本中对应的 link id（供解除引用/转副本） */
   hub_link_id: string | null;
   has_translation: boolean;
+  /** 元数据在但译文 .md 丢失/为空（状态已降级为待翻译，此标记驱动丢失提示） */
+  translation_lost: boolean;
   title_zh: string;
   description_zh: string;
   source_deleted: boolean;

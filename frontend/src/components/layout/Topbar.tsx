@@ -1,6 +1,7 @@
 import { Search, RefreshCw, Sun, Moon, Settings } from "lucide-react";
 import { useTheme } from "next-themes";
 import sharkTile from "@/assets/brand/shark-tile.png";
+import { Tip } from "@/components/common/Tip";
 
 interface TopbarProps {
   totalSkills: number;
@@ -79,38 +80,41 @@ export function Topbar({
         </div>
 
         {/* 同步 */}
-        <button
-          type="button"
-          className="iconbtn"
-          onClick={onSync}
-          disabled={syncing}
-          title="同步"
-          aria-label="同步技能列表"
-        >
-          <RefreshCw className={`h-[18px] w-[18px] ${syncing ? "animate-spin" : ""}`} />
-        </button>
+        <Tip label="同步">
+          <button
+            type="button"
+            className="iconbtn"
+            onClick={onSync}
+            disabled={syncing}
+            aria-label="同步技能列表"
+          >
+            <RefreshCw className={`h-[18px] w-[18px] ${syncing ? "animate-spin" : ""}`} />
+          </button>
+        </Tip>
 
         {/* 主题切换 */}
-        <button
-          type="button"
-          className="iconbtn"
-          onClick={() => setTheme(isDark ? "light" : "dark")}
-          title={isDark ? "切换亮色" : "切换暗色"}
-          aria-label="切换主题"
-        >
-          {isDark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
-        </button>
+        <Tip label={isDark ? "切换亮色" : "切换暗色"}>
+          <button
+            type="button"
+            className="iconbtn"
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            aria-label="切换主题"
+          >
+            {isDark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+          </button>
+        </Tip>
 
         {/* 设置 */}
-        <button
-          type="button"
-          className="iconbtn"
-          onClick={onOpenSettings}
-          title="设置"
-          aria-label="打开设置"
-        >
-          <Settings className="h-[18px] w-[18px]" />
-        </button>
+        <Tip label="设置">
+          <button
+            type="button"
+            className="iconbtn"
+            onClick={onOpenSettings}
+            aria-label="打开设置"
+          >
+            <Settings className="h-[18px] w-[18px]" />
+          </button>
+        </Tip>
       </div>
     </header>
   );

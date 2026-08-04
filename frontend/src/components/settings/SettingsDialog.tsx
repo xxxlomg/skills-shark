@@ -17,6 +17,7 @@ import {
   Loader2,
   Palette,
   Check,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -28,7 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tip } from "@/components/common/Tip";
 import {
   loadLLMConfig,
   saveLLMConfig,
@@ -46,7 +47,18 @@ interface SettingsDialogProps {
   onSaved?: () => void;
 }
 
+type Section = "llm" | "paths" | "appearance";
+
+const SECTIONS: { id: Section; label: string; icon: typeof Key; hint: string }[] = [
+  { id: "llm", label: "LLM 配置", icon: Key, hint: "翻译服务的密钥与端点" },
+  { id: "paths", label: "扫描路径", icon: FolderOpen, hint: "Skills 所在的文件夹" },
+  { id: "appearance", label: "外观", icon: Palette, hint: "界面主题色" },
+];
+
 export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogProps) {
+  // 当前分区（sidebar 导航）
+  const [section, setSection] = useState<Section>("llm");
+
   // LLM 配置
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(LLM_DEFAULTS.baseUrl);
@@ -74,7 +86,6 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
     setLoaded(false);
     loadLLMConfig()
       .then((config) => {
-        console.log("[settings] loadLLMConfig OK:", config);
         if (config.hasKey) {
           setApiKey(config.apiKey);
           setHasExisting(true);
@@ -86,10 +97,8 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         setModel(config.model || LLM_DEFAULTS.model);
         setScanPaths(config.scanPaths || []);
         setPathExists(config.pathExists || []);
-        console.log("[settings] scanPaths loaded:", config.scanPaths);
       })
-      .catch((err) => {
-        console.error("[settings] loadLLMConfig ERROR:", err);
+      .catch(() => {
         toast.error("加载配置失败");
       })
       .finally(() => setLoaded(true));
@@ -124,15 +133,6 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         toast.info(`已自动添加：${pendingPath}`);
       }
     }
-    console.log(
-      "[settings] handleSave -> scanPaths:",
-      JSON.stringify(finalPaths)
-    );
-    console.log("[settings] handleSave -> llm:", {
-      apiKey: apiKey.trim() ? "***" : "",
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-    });
     try {
       await saveLLMConfig(
         {
@@ -142,14 +142,12 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         },
         finalPaths
       );
-      console.log("[settings] saveLLMConfig OK");
       setHasExisting(true);
       toast.success("配置已保存");
       onOpenChange(false);
       onSaved?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "未知错误";
-      console.error("[settings] saveLLMConfig ERROR:", err);
       toast.error(`保存失败：${msg}`);
     }
   }, [apiKey, baseUrl, model, scanPaths, newPath, newLabel, onOpenChange, onSaved, loaded]);
@@ -244,278 +242,294 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-lg overflow-hidden [&>*]:min-w-0"
-        showCloseButton={false}
-      >
-        <div className="gradient-bar -mx-6 -mt-6 mb-2 rounded-t-lg" />
-
-        <DialogHeader>
-          <DialogTitle className="text-lg font-bold text-foreground">
-            ⚙️ 设置
+      <DialogContent className="flex h-[min(660px,88vh)] w-[min(880px,94vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
+        <DialogHeader className="shrink-0 border-b border-stroke px-5 py-4 pr-12">
+          <DialogTitle className="flex items-center gap-2 text-base font-bold text-text-primary">
+            <Settings2 className="h-4 w-4 text-brand" />
+            设置
           </DialogTitle>
           <DialogDescription>
-            配置 LLM API 密钥和 Skills 扫描路径。
+            配置 LLM API 密钥、Skills 扫描路径与外观。
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="llm" className="w-full">
-          <TabsList className="w-full">
-            <TabsTrigger value="llm" className="flex-1 text-xs">
-              <Key className="mr-1 h-3 w-3" />
-              LLM 配置
-            </TabsTrigger>
-            <TabsTrigger value="paths" className="flex-1 text-xs">
-              <FolderOpen className="mr-1 h-3 w-3" />
-              扫描路径
-            </TabsTrigger>
-            <TabsTrigger value="appearance" className="flex-1 text-xs">
-              <Palette className="mr-1 h-3 w-3" />
-              外观
-            </TabsTrigger>
-          </TabsList>
-
-          {/* LLM 配置 Tab */}
-          <TabsContent value="llm" className="space-y-4 pt-3">
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                <Key className="h-3.5 w-3.5" />
-                API Key
-              </label>
-              <div className="relative">
-                <Input
-                  type={showKey ? "text" : "password"}
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="pr-9"
-                />
+        {/* 主体：左侧 sidebar 导航 + 右侧内容区 */}
+        <div className="flex min-h-0 flex-1">
+          <nav className="w-40 shrink-0 space-y-1 overflow-y-auto border-r border-stroke p-3">
+            {SECTIONS.map((s) => {
+              const Icon = s.icon;
+              const active = section === s.id;
+              return (
                 <button
+                  key={s.id}
                   type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setSection(s.id)}
+                  className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                    active
+                      ? "bg-brand/10 font-medium text-brand ring-1 ring-brand/40"
+                      : "text-text-secondary hover:bg-glass-2 hover:text-text-primary"
+                  }`}
                 >
-                  {showKey ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {s.label}
                 </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                <Globe className="h-3.5 w-3.5" />
-                Base URL
-              </label>
-              <Input
-                type="text"
-                placeholder={LLM_DEFAULTS.baseUrl}
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                <Cpu className="h-3.5 w-3.5" />
-                Model
-                <span className="text-xs text-muted-foreground font-normal">
-                  （可选）
-                </span>
-              </label>
-              <Input
-                type="text"
-                placeholder={LLM_DEFAULTS.model}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTest}
-                disabled={testing}
-                className="text-xs"
-              >
-                <Wifi className="mr-1 h-3 w-3" />
-                {testing ? "测试中..." : "测试连接"}
-              </Button>
-              <div className="flex-1" />
-              {hasExisting && (
-                <Button
-                  variant="outline"
-                  onClick={handleClear}
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              ⚠️ API Key 存储在后端 _data/config.json，仅本地使用。
+              );
+            })}
+            <p className="px-3 pt-2 text-[11px] leading-relaxed text-text-tertiary">
+              {SECTIONS.find((s) => s.id === section)?.hint}
             </p>
-          </TabsContent>
+          </nav>
 
-          {/* 扫描路径 Tab */}
-          <TabsContent value="paths" className="space-y-3 pt-3">
-            <p className="text-xs text-muted-foreground">
-              添加 Skills 所在的文件夹路径。系统会递归扫描每个路径下含 SKILL.md 的子目录（最深 3 层）。
-            </p>
-
-            {/* 已有路径列表 */}
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {scanPaths.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  暂无扫描路径
-                </p>
-              )}
-              {scanPaths.map((sp, i) => {
-                const exists = i < pathExists.length ? pathExists[i] : true;
-                return (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-2 rounded-lg border p-2 transition-colors ${
-                      !exists
-                        ? "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20"
-                        : "border-border"
-                    }`}
-                  >
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
+            {/* LLM 配置 */}
+            {section === "llm" && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <Key className="h-3.5 w-3.5" />
+                    API Key
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showKey ? "text" : "password"}
+                      placeholder="sk-..."
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="pr-9"
+                    />
                     <button
                       type="button"
-                      onClick={() => toggleScanPath(i)}
-                      className="shrink-0 text-muted-foreground hover:text-foreground"
-                      title={sp.enabled ? "点击禁用" : "点击启用"}
+                      onClick={() => setShowKey(!showKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      {sp.enabled ? (
-                        <ToggleRight className="h-[26px] w-[26px] text-green-500" />
+                      {showKey ? (
+                        <EyeOff className="h-4 w-4" />
                       ) : (
-                        <ToggleLeft className="h-[26px] w-[26px]" />
+                        <Eye className="h-4 w-4" />
                       )}
                     </button>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{sp.label}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {sp.path}
-                      </p>
-                      {!exists && (
-                        <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                          <AlertTriangle className="h-3 w-3" />
-                          目录不存在
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
-                      onClick={() => removeScanPath(i)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
-                );
-              })}
-            </div>
+                </div>
 
-            {/* 检测默认路径按钮 */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDetectPaths}
-              disabled={detecting || !loaded}
-              className="w-full text-xs"
-            >
-              {detecting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Search className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {detecting ? "检测中…" : "检测默认 AI 工具路径"}
-            </Button>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <Globe className="h-3.5 w-3.5" />
+                    Base URL
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder={LLM_DEFAULTS.baseUrl}
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                  />
+                </div>
 
-            {/* 添加新路径 */}
-            <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-              <p className="text-xs font-medium text-muted-foreground">
-                添加扫描路径
-              </p>
-              <Input
-                type="text"
-                placeholder="文件夹路径，如 C:\Users\xxx\.cursor\skills"
-                value={newPath}
-                onChange={(e) => setNewPath(e.target.value)}
-                className="text-xs"
-                disabled={!loaded}
-              />
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  placeholder="标签，如 Cursor"
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                  className="text-xs flex-1 min-w-0"
-                  disabled={!loaded}
-                />
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <Cpu className="h-3.5 w-3.5" />
+                    Model
+                    <span className="text-xs text-muted-foreground font-normal">
+                      （可选）
+                    </span>
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder={LLM_DEFAULTS.model}
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTest}
+                    disabled={testing}
+                    className="text-xs"
+                  >
+                    <Wifi className="mr-1 h-3 w-3" />
+                    {testing ? "测试中..." : "测试连接"}
+                  </Button>
+                  <div className="flex-1" />
+                  {hasExisting && (
+                    <Button
+                      variant="outline"
+                      onClick={handleClear}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  ⚠️ API Key 仅保存在本机配置文件，不会上传到任何外部服务。
+                </p>
+              </>
+            )}
+
+            {/* 扫描路径 */}
+            {section === "paths" && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  添加 Skills 所在的文件夹路径。系统会递归扫描每个路径下含 SKILL.md 的子目录（最深 3 层）。
+                </p>
+
+                {/* 已有路径列表 */}
+                <div className="space-y-2">
+                  {scanPaths.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      暂无扫描路径
+                    </p>
+                  )}
+                  {scanPaths.map((sp, i) => {
+                    const exists = i < pathExists.length ? pathExists[i] : true;
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-2 rounded-lg border p-2 transition-colors ${
+                          !exists
+                            ? "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20"
+                            : "border-border"
+                        }`}
+                      >
+                        <Tip label={sp.enabled ? "点击禁用" : "点击启用"}>
+                          <button
+                            type="button"
+                            onClick={() => toggleScanPath(i)}
+                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                          >
+                            {sp.enabled ? (
+                              <ToggleRight className="h-[26px] w-[26px] text-green-500" />
+                            ) : (
+                              <ToggleLeft className="h-[26px] w-[26px]" />
+                            )}
+                          </button>
+                        </Tip>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{sp.label}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {sp.path}
+                          </p>
+                          {!exists && (
+                            <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                              <AlertTriangle className="h-3 w-3" />
+                              目录不存在
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                          onClick={() => removeScanPath(i)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 检测默认路径按钮 */}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={addScanPath}
-                  className="text-xs"
-                  disabled={!loaded}
+                  onClick={handleDetectPaths}
+                  disabled={detecting || !loaded}
+                  className="w-full text-xs"
                 >
-                  <Plus className="mr-1 h-3 w-3" />
-                  添加
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* 外观 Tab */}
-          <TabsContent value="appearance" className="space-y-3 pt-3">
-            <p className="text-xs text-muted-foreground">
-              界面主题色，点击立即生效并自动保存。
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {ACCENTS.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => {
-                    setAccent(a.id);
-                    setAccentState(a.id);
-                  }}
-                  className={`flex items-center gap-2 rounded-lg border p-2.5 transition-colors ${
-                    accent === a.id
-                      ? "border-stroke-hi bg-glass-2"
-                      : "border-border hover:border-stroke-hi"
-                  }`}
-                >
-                  <span className="flex shrink-0 -space-x-1.5">
-                    <span
-                      className="h-4 w-4 rounded-full ring-1 ring-black/20"
-                      style={{ background: a.dark }}
-                    />
-                    <span
-                      className="h-4 w-4 rounded-full ring-1 ring-white/40"
-                      style={{ background: a.light }}
-                    />
-                  </span>
-                  <span className="text-sm text-foreground">{a.name}</span>
-                  {accent === a.id && (
-                    <Check className="ml-auto h-4 w-4 text-[var(--accent)]" />
+                  {detecting ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="mr-1.5 h-3.5 w-3.5" />
                   )}
-                </button>
-              ))}
-            </div>
-          </TabsContent>
-        </Tabs>
+                  {detecting ? "检测中…" : "检测默认 AI 工具路径"}
+                </Button>
+
+                {/* 添加新路径 */}
+                <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    添加扫描路径
+                  </p>
+                  <Input
+                    type="text"
+                    placeholder="文件夹路径，如 C:\Users\xxx\.cursor\skills"
+                    value={newPath}
+                    onChange={(e) => setNewPath(e.target.value)}
+                    className="text-xs"
+                    disabled={!loaded}
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="标签，如 Cursor"
+                      value={newLabel}
+                      onChange={(e) => setNewLabel(e.target.value)}
+                      className="text-xs flex-1 min-w-0"
+                      disabled={!loaded}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addScanPath}
+                      className="text-xs"
+                      disabled={!loaded}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      添加
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 外观 */}
+            {section === "appearance" && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  界面主题色，点击立即生效并自动保存。
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {ACCENTS.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => {
+                        setAccent(a.id);
+                        setAccentState(a.id);
+                      }}
+                      className={`flex items-center gap-2 rounded-lg border p-2.5 transition-colors ${
+                        accent === a.id
+                          ? "border-stroke-hi bg-glass-2"
+                          : "border-border hover:border-stroke-hi"
+                      }`}
+                    >
+                      <span className="flex shrink-0 -space-x-1.5">
+                        <span
+                          className="h-4 w-4 rounded-full ring-1 ring-black/20"
+                          style={{ background: a.dark }}
+                        />
+                        <span
+                          className="h-4 w-4 rounded-full ring-1 ring-white/40"
+                          style={{ background: a.light }}
+                        />
+                      </span>
+                      <span className="text-sm text-foreground">{a.name}</span>
+                      {accent === a.id && (
+                        <Check className="ml-auto h-4 w-4 text-[var(--accent)]" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* 保存按钮 */}
-        <div className="flex justify-end pt-2">
+        <div className="flex shrink-0 justify-end border-t border-stroke px-5 py-4">
           <Button onClick={handleSave} className="w-full" disabled={!loaded}>
             <Save className="mr-1.5 h-4 w-4" />
             {loaded ? "保存配置" : "加载配置中…"}

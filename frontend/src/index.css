@@ -295,6 +295,15 @@
 
   html {
     background: var(--bg-0);
+    /* 预留滚动条槽位：内容高度变化（切布局/切 tab）时不再挤压抖动 */
+    scrollbar-gutter: stable;
+  }
+
+  /* scrollbar-gutter:stable 下锁滚动时滚动槽仍保留，
+     react-remove-scroll 的 margin-right 补偿变成双重补偿（主页被左挤一个滚动条宽）。
+     用更高特异性覆盖其运行时注入的 !important 样式。 */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
   }
 
   body {
@@ -566,6 +575,7 @@
 }
 .sd-ok { background: var(--green); box-shadow: 0 0 7px var(--green); }
 .sd-old { background: var(--amber); box-shadow: 0 0 7px var(--amber); animation: pulse-dot 1.8s ease-in-out infinite; }
+.sd-lost { background: var(--amber); box-shadow: 0 0 7px var(--amber); }
 .sd-no { background: var(--text-3); }
 
 /* 翻译流式光标 */

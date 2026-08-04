@@ -9,6 +9,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { Tip } from "@/components/common/Tip";
+import { LayoutToggle } from "@/components/skill/LayoutToggle";
+import type { LayoutMode } from "@/hooks/useSkills";
 import {
   hubConvertToCopy,
   hubLinksStatus,
@@ -23,6 +26,10 @@ interface HubViewProps {
   onOpenLink: () => void;
   /** 磁盘变更后刷新技能列表（App 的 refresh） */
   onSkillsRefresh: () => Promise<void> | void;
+  /** 建链成功等外部变更令牌：变化时重取台账（修复 dialog 建链后台账不刷新） */
+  refreshToken?: number;
+  layout: LayoutMode;
+  onLayoutChange: (mode: LayoutMode) => void;
 }
 
 const HEALTH_META: Record<
@@ -49,8 +56,15 @@ const HEALTH_META: Record<
 /**
  * Hub 页（PLAN-06 §2.7/§2.8）：引用台账总览 + 全模式操作。
  * 账本（links.json）是索引，文件系统是真相；诊断由后端 hub_links_status 逐条对账。
+ * 与技能库 / Packs 一致，支持卡片（grid）/ 列表（list）两种布局。
  */
-export function HubView({ onOpenLink, onSkillsRefresh }: HubViewProps) {
+export function HubView({
+  onOpenLink,
+  onSkillsRefresh,
+  refreshToken,
+  layout,
+  onLayoutChange,
+}: HubViewProps) {
   const [statuses, setStatuses] = useState<LinkStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
@@ -74,7 +88,7 @@ export function HubView({ onOpenLink, onSkillsRefresh }: HubViewProps) {
 
   useEffect(() => {
     refreshStatuses();
-  }, [refreshStatuses]);
+  }, [refreshStatuses, refreshToken]);
 
   // tool_id → 显示名（linkable 清单覆盖所有可能的落点工具；缺失回退原始 id）
   const [toolNames, setToolNames] = useState<Record<string, string>>({});
@@ -132,6 +146,101 @@ export function HubView({ onOpenLink, onSkillsRefresh }: HubViewProps) {
     [refreshStatuses, onSkillsRefresh]
   );
 
+  /** 操作按钮组（卡片 / 列表共用） */
+  const renderActions = (s: LinkStatus, busy: boolean) =>
+    busy ? (
+      <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" />
+    ) : (
+      <>
+        {s.health === "normal" && s.mode === "link" && (
+          <Tip label="复制实体替换 junction，从此独立于出处">
+            <button
+              type="button"
+              className="mbtn"
+              onClick={() => setPending({ kind: "convert", link: s })}
+            >
+              <CopyPlus className="h-3.5 w-3.5" />
+              转副本
+            </button>
+          </Tip>
+        )}
+        {s.health !== "normal" && s.mode === "link" && (
+          <Tip label="移除坏落点并以原出处重新建链">
+            <button
+              type="button"
+              className="mbtn"
+              onClick={() => setPending({ kind: "rebuild", link: s })}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              重建
+            </button>
+          </Tip>
+        )}
+        <Tip
+          label={
+            s.mode === "link"
+              ? "只移除 junction 本体，出处内容不受影响"
+              : "副本目录保留，仅移除账本记录"
+          }
+        >
+          <button
+            type="button"
+            className="mbtn"
+            onClick={() => setPending({ kind: "unlink", link: s })}
+          >
+            <Link2Off className="h-3.5 w-3.5" />
+            {s.health === "normal" ? "解除" : "移除记录"}
+          </button>
+        </Tip>
+      </>
+    );
+
+  /** 名称 + 徽标行（卡片 / 列表共用） */
+  const renderNameRow = (s: LinkStatus) => {
+    const health = HEALTH_META[s.health];
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="text-[18px]">🧩</span>
+        <span className="truncate font-display text-[14.5px] font-semibold text-text-primary">
+          {s.skill_name}
+        </span>
+        <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-secondary">
+          {s.mode === "link" ? "链接" : "副本"}
+        </span>
+        <span
+          className={`flex shrink-0 items-center gap-1.5 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] ${health.cls}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${health.dot}`} />
+          {health.label}
+        </span>
+      </div>
+    );
+  };
+
+  /** 路径行（卡片 / 列表共用）：悬停显示出处/落点（全局 Hint 组件） */
+  const renderPathRow = (s: LinkStatus) => (
+    <>
+      <Tip
+        side="bottom"
+        label={
+          <span className="block font-mono">
+            出处：{s.source}
+            <br />
+            落点：{s.target}
+          </span>
+        }
+      >
+        <p className="truncate font-mono text-[11px] text-text-tertiary">
+          {s.source} <span className="text-text-secondary">→</span>{" "}
+          {toolNames[s.target_tool] ?? s.target_tool}
+        </p>
+      </Tip>
+      {s.health !== "normal" && s.detail && (
+        <p className="mt-0.5 text-[11px] text-amber-500/90">{s.detail}</p>
+      )}
+    </>
+  );
+
   return (
     <div className="pt-6">
       {/* 头部 */}
@@ -157,6 +266,8 @@ export function HubView({ onOpenLink, onSkillsRefresh }: HubViewProps) {
           <Plus className="h-3.5 w-3.5" />
           新建引用
         </button>
+        {/* 布局切换固定最右，远离主操作按钮防误触 */}
+        <LayoutToggle value={layout} onChange={onLayoutChange} />
       </div>
 
       {/* 列表 */}
@@ -172,90 +283,39 @@ export function HubView({ onOpenLink, onSkillsRefresh }: HubViewProps) {
             点击「新建引用」，把技能链接或复制到 AI 工具的 skills 目录。
           </p>
         </div>
+      ) : layout === "grid" ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {statuses.map((s) => {
+            const busy = actingId === s.id;
+            return (
+              <div
+                key={s.id}
+                className="glass-card flex flex-col gap-2.5 px-[18px] py-[16px]"
+              >
+                {renderNameRow(s)}
+                <div className="min-w-0">{renderPathRow(s)}</div>
+                <div className="mt-auto flex items-center gap-1.5 pt-1">
+                  {renderActions(s, busy)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="space-y-2.5">
           {statuses.map((s) => {
-            const health = HEALTH_META[s.health];
             const busy = actingId === s.id;
             return (
               <div
                 key={s.id}
                 className="glass-card flex flex-wrap items-center gap-x-4 gap-y-2 px-[18px] py-[14px]"
               >
-                {/* 名称 + 徽标 */}
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="text-[18px]">🧩</span>
-                  <span className="truncate font-display text-[14.5px] font-semibold text-text-primary">
-                    {s.skill_name}
-                  </span>
-                  <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-secondary">
-                    {s.mode === "link" ? "链接" : "副本"}
-                  </span>
-                  <span
-                    className={`flex shrink-0 items-center gap-1.5 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] ${health.cls}`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${health.dot}`} />
-                    {health.label}
-                  </span>
-                </div>
-
-                {/* 路径 */}
+                {renderNameRow(s)}
                 <div className="min-w-0 flex-1 basis-full lg:basis-auto">
-                  <p
-                    className="truncate font-mono text-[11px] text-text-tertiary"
-                    title={`出处：${s.source}\n落点：${s.target}`}
-                  >
-                    {s.source} <span className="text-text-secondary">→</span>{" "}
-                    {toolNames[s.target_tool] ?? s.target_tool}
-                  </p>
-                  {s.health !== "normal" && s.detail && (
-                    <p className="mt-0.5 text-[11px] text-amber-500/90">{s.detail}</p>
-                  )}
+                  {renderPathRow(s)}
                 </div>
-
-                {/* 操作 */}
                 <div className="flex shrink-0 items-center gap-1.5">
-                  {busy ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-text-tertiary" />
-                  ) : (
-                    <>
-                      {s.health === "normal" && s.mode === "link" && (
-                        <button
-                          type="button"
-                          className="mbtn"
-                          title="复制实体替换 junction，从此独立于出处"
-                          onClick={() => setPending({ kind: "convert", link: s })}
-                        >
-                          <CopyPlus className="h-3.5 w-3.5" />
-                          转副本
-                        </button>
-                      )}
-                      {s.health !== "normal" && s.mode === "link" && (
-                        <button
-                          type="button"
-                          className="mbtn"
-                          title="移除坏落点并以原出处重新建链"
-                          onClick={() => setPending({ kind: "rebuild", link: s })}
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                          重建
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="mbtn"
-                        title={
-                          s.mode === "link"
-                            ? "只移除 junction 本体，出处内容不受影响"
-                            : "副本目录保留，仅移除账本记录"
-                        }
-                        onClick={() => setPending({ kind: "unlink", link: s })}
-                      >
-                        <Link2Off className="h-3.5 w-3.5" />
-                        {s.health === "normal" ? "解除" : "移除记录"}
-                      </button>
-                    </>
-                  )}
+                  {renderActions(s, busy)}
                 </div>
               </div>
             );

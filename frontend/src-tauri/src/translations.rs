@@ -63,7 +63,7 @@ pub fn save_translation(
     // 写 .md 文件
     let dir = config::translations_dir();
     let _ = fs::create_dir_all(&dir);
-    let md_path = dir.join(format!("{}.md", skill_id));
+    let md_path = dir.join(md_filename(skill_id));
     fs::write(&md_path, bilingual_text).map_err(|e| e.to_string())?;
 
     // 更新 index
@@ -84,25 +84,54 @@ pub fn save_translation(
     save_all_meta(&index)
 }
 
+/// skill_id 含 Windows 文件名非法字符（`|` `/` `:` 等，os error 123 的根因）。
+/// 落盘名做 percent-encode：安全字符 [A-Za-z0-9._-] 原样，其余 %XX。
+/// 单射且稳定；旧哈希 id 无非法字符，编码后不变，天然兼容。
+pub fn md_filename(id: &str) -> String {
+    let safe = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_');
+    let mut out = String::with_capacity(id.len() + 4);
+    for &b in id.as_bytes() {
+        if safe(b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out.push_str(".md");
+    out
+}
+
+/// 旧名 md 改新名。rename 失败（跨卷/占用）回退内容复制并保留旧文件。
+/// 返回操作后新名 md 是否可用。旧文件不存在或新文件已存在 → false（no-op）。
+pub fn repair_rename(old_id: &str, new_id: &str) -> bool {
+    let dir = config::translations_dir();
+    let old_f = dir.join(md_filename(old_id));
+    let new_f = dir.join(md_filename(new_id));
+    if !old_f.exists() || new_f.exists() {
+        return false;
+    }
+    if fs::rename(&old_f, &new_f).is_ok() {
+        return true;
+    }
+    fs::read_to_string(&old_f)
+        .map(|c| fs::write(&new_f, c).is_ok())
+        .unwrap_or(false)
+}
+
 /// id 迁移换键（PLAN-04 §2.3）：md 文件改名 + meta 换键回写。
-/// 旧键不存在时 no-op，幂等。
+/// 旧键不存在时 no-op，幂等。rename 失败回退复制，杜绝「meta 新键 + md 旧名」残留。
 pub fn rekey(old_id: &str, new_id: &str) -> Result<(), String> {
     let mut index = load_all_meta();
     let Some(meta) = index.remove(old_id) else {
         return Ok(());
     };
-    let dir = config::translations_dir();
-    let old_f = dir.join(format!("{}.md", old_id));
-    let new_f = dir.join(format!("{}.md", new_id));
-    if old_f.exists() {
-        let _ = fs::rename(&old_f, &new_f);
-    }
+    repair_rename(old_id, new_id);
     index.insert(new_id.to_string(), meta);
     save_all_meta(&index)
 }
 
 pub fn read_translated_content(skill_id: &str) -> Option<String> {
-    let md_path = config::translations_dir().join(format!("{}.md", skill_id));
+    let md_path = config::translations_dir().join(md_filename(skill_id));
     fs::read_to_string(&md_path).ok()
 }
 

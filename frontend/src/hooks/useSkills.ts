@@ -27,6 +27,8 @@ export interface Skill {
   /** 账本中对应的 link id（供解除引用/转副本） */
   hub_link_id: string | null;
   has_translation: boolean;
+  /** 元数据在但译文 .md 丢失/为空 */
+  translation_lost: boolean;
   title_zh: string;
   /** 译文中的中文描述（无译文为空串），展示优先于 description */
   description_zh: string;
@@ -41,16 +43,19 @@ export interface SkillGroup {
 
 export type LayoutMode = "grid" | "list";
 
-/** 翻译状态（后端暂无"过期"检测，仅 ok / no 两态） */
-export type TranslateStatus = "ok" | "old" | "no";
+/** 翻译状态：ok 已翻译 / lost 译文丢失（曾翻译但文件没了）/ no 待翻译 */
+export type TranslateStatus = "ok" | "old" | "lost" | "no";
 
 export function skillStatus(s: Skill): TranslateStatus {
-  return s.has_translation ? "ok" : "no";
+  if (s.has_translation) return "ok";
+  if (s.translation_lost) return "lost";
+  return "no";
 }
 
 export const STATUS_TEXT: Record<TranslateStatus, string> = {
   ok: "已翻译",
   old: "译文过期",
+  lost: "译文丢失",
   no: "待翻译",
 };
 

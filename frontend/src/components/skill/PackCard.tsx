@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Box, Download, Package, Trash2 } from "lucide-react";
 import type { PackInfo } from "@/lib/api";
+import { Tip } from "@/components/common/Tip";
 
 export type PackAction = "install" | "export" | "delete";
 
@@ -53,21 +54,18 @@ export function PackCard({ pack, index, onAction }: PackCardProps) {
         {shown.length > 0 && (
           <div className="relative z-[1] mt-[14px] flex flex-wrap items-center gap-[6px]">
             {shown.map((n, k) => (
-              <span
-                key={k}
-                className="max-w-[120px] truncate rounded-[8px] border border-stroke bg-glass-2 px-[8px] py-[3px] text-[11px] text-text-secondary"
-                title={n}
-              >
-                {n}
-              </span>
+              <Tip key={k} label={n}>
+                <span className="max-w-[120px] truncate rounded-[8px] border border-stroke bg-glass-2 px-[8px] py-[3px] text-[11px] text-text-secondary">
+                  {n}
+                </span>
+              </Tip>
             ))}
             {rest > 0 && (
-              <span
-                className="rounded-[8px] border border-stroke bg-glass-2 px-[8px] py-[3px] text-[11px] text-text-secondary"
-                title={pack.skill_names.slice(MAX_TAGS).join("、")}
-              >
-                +{rest}
-              </span>
+              <Tip label={pack.skill_names.slice(MAX_TAGS).join("、")}>
+                <span className="rounded-[8px] border border-stroke bg-glass-2 px-[8px] py-[3px] text-[11px] text-text-secondary">
+                  +{rest}
+                </span>
+              </Tip>
             )}
           </div>
         )}
@@ -85,14 +83,15 @@ export function PackCard({ pack, index, onAction }: PackCardProps) {
             <Box className="h-3.5 w-3.5" />
             导出
           </button>
-          <button
-            type="button"
-            className={dangerBtn}
-            onClick={() => onAction("delete", pack)}
-            title="删除 Pack"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <Tip label="删除 Pack">
+            <button
+              type="button"
+              className={dangerBtn}
+              onClick={() => onAction("delete", pack)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </Tip>
         </div>
       </div>
     </div>
