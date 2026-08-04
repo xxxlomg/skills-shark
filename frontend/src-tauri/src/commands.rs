@@ -15,13 +15,12 @@ use crate::translations;
 pub fn scan_skills() -> Vec<Skill> {
     let start = std::time::Instant::now();
     let cfg = config::load_config();
-    let paths: Vec<String> = cfg
-        .scan_paths
+    let scan_items = config::scan_items_from_tools(&cfg.tools);
+    let paths: Vec<String> = scan_items
         .iter()
-        .filter(|p| p.enabled)
         .map(|p| format!("{} ({})", p.path, p.label))
         .collect();
-    let result = scanner::scan_all_skills(&cfg.scan_paths);
+    let result = scanner::scan_all_skills(&scan_items);
     config::debug_log(&format!(
         "scan_skills: paths=[{}] found={} elapsed={}ms",
         paths.join(" | "),
@@ -129,8 +128,10 @@ pub fn save_config(
         llm_api_key
     };
 
+    // v0.2（B1）：前端仍以 scan_paths 行提交（过渡契约），反向合并回 tools。
+    let tools = config::apply_scan_paths_edit(&old.tools, &scan_paths);
     let new_config = AppConfig {
-        scan_paths,
+        tools,
         llm: config::LLMConfig {
             api_key: final_key,
             base_url: llm_base_url,
@@ -139,7 +140,7 @@ pub fn save_config(
     };
     match config::save_config(&new_config) {
         Ok(()) => {
-            config::debug_log("save_config OK: written to _data/config.json");
+            config::debug_log("save_config OK: tools merged & written");
             Ok(())
         }
         Err(e) => {
@@ -150,28 +151,14 @@ pub fn save_config(
 }
 
 // ---------------------------------------------------------------------------
-// detect_paths — 检测磁盘上存在但尚未配置的默认路径
+// detect_paths — v0.2 语义：返回被禁用的注册表工具中仍存在的候选路径
+// （注册表工具永远在配置中，「检测未配置路径」已消亡；B5 前端改造后此命令退役）
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub fn detect_paths() -> Vec<ScanPathItem> {
     let cfg = config::load_config();
-    let existing: std::collections::HashSet<String> = cfg
-        .scan_paths
-        .iter()
-        .map(|sp| {
-            // 规范化：去掉尾部斜杠/反斜杠，统一小写（Windows 路径不区分大小写）
-            sp.path.trim_end_matches(['/', '\\']).to_lowercase()
-        })
-        .collect();
-
-    config::detect_default_paths()
-        .into_iter()
-        .filter(|sp| {
-            let normalized = sp.path.trim_end_matches(['/', '\\']).to_lowercase();
-            !existing.contains(&normalized)
-        })
-        .collect()
+    config::detect_unconfigured_paths(&cfg.tools)
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +229,8 @@ pub fn commit_url_import(
 pub fn sync_deleted(current_ids: Vec<String>) -> Vec<Skill> {
     let _ = translations::sync_deleted_status(&current_ids);
     let cfg = config::load_config();
-    scanner::scan_all_skills(&cfg.scan_paths)
+    let scan_items = config::scan_items_from_tools(&cfg.tools);
+    scanner::scan_all_skills(&scan_items)
 }
 
 // ---------------------------------------------------------------------------
