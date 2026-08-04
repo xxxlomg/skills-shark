@@ -1,4 +1,4 @@
-import { Download, Package, Plus, Box, Trash2 } from "lucide-react";
+import { Download, Package, Plus, Box, Trash2, Store } from "lucide-react";
 import { PackCard, type PackAction } from "./PackCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { Tip } from "@/components/common/Tip";
@@ -11,6 +11,7 @@ interface PacksViewProps {
   packs: PackInfo[];
   onCreatePack: () => void;
   onImportPack: () => void;
+  onRepoImport: () => void;
   onPackAction: (action: PackAction, pack: PackInfo) => void;
   layout: LayoutMode;
   onLayoutChange: (mode: LayoutMode) => void;
@@ -21,11 +22,22 @@ export function PacksView({
   packs,
   onCreatePack,
   onImportPack,
+  onRepoImport,
   onPackAction,
   layout,
   onLayoutChange,
 }: PacksViewProps) {
   let idx = 0;
+
+  const repoGhost = (
+    <GhostCard
+      icon={<Store className="h-[22px] w-[22px]" />}
+      title="从技能仓库导入"
+      subtitle=".skillpack 货架（Git 仓库）"
+      index={idx++}
+      onClick={onRepoImport}
+    />
+  );
 
   const importGhost = (
     <GhostCard
@@ -73,11 +85,13 @@ export function PacksView({
               onClick={onCreatePack}
             />
             {importGhost}
+            {repoGhost}
           </div>
         </div>
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {/* 导入入口前置：Pack 再多也无需滚动即可触达 */}
+          {repoGhost}
           {importGhost}
           {packs.map((p) => (
             <PackCard key={p.id} pack={p} index={idx++} onAction={onPackAction} />
@@ -85,6 +99,7 @@ export function PacksView({
         </div>
       ) : (
         <div className="space-y-2.5">
+          {repoGhost}
           {importGhost}
           {packs.map((p) => (
             <div

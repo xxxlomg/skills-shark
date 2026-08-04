@@ -10,6 +10,7 @@ import {
   MOCK_RAW,
   MOCK_TOOLS,
   MOCK_LINKS,
+  MOCK_SHELF,
 } from "@/hooks/mockSkills";
 
 // ---------------------------------------------------------------------------
@@ -454,6 +455,119 @@ export function packInstall(id: string): Promise<number> {
 
 export function packDelete(id: string): Promise<void> {
   return invoke("pack_delete", { id });
+}
+
+// ---------------------------------------------------------------------------
+// 模块 A：Git 仓库货架导入（PLAN-06 §1；MEMO-A）
+// ---------------------------------------------------------------------------
+
+export interface GitStatusInfo {
+  installed: boolean;
+  version: string;
+}
+
+/** 货架条目（index.json 或降级扫描产出） */
+export interface ShelfPackEntry {
+  id: string;
+  name: string;
+  ver: string;
+  path: string;
+  skill_count: number;
+  summary_zh: string;
+  updated_at: string;
+  declared_sha256: string;
+  actual_sha256: string;
+  /** 清单声明与包内容不一致（可能清单过期；不阻断导入） */
+  sha256_mismatch: boolean;
+}
+
+export interface ShelfPreview {
+  repo_name: string;
+  updated_at: string;
+  /** git+index / git+scan / archive+index / archive+scan */
+  source: string;
+  packs: ShelfPackEntry[];
+  token: string;
+}
+
+export interface ImportFailure {
+  path: string;
+  error: string;
+}
+
+export interface RepoImportResult {
+  imported: PackInfo[];
+  failed: ImportFailure[];
+  warnings: string[];
+}
+
+export function gitStatus(): Promise<GitStatusInfo> {
+  if (isMockMode()) {
+    return Promise.resolve({
+      installed: true,
+      version: "git version 2.47.0.windows.1 (mock)",
+    });
+  }
+  return invoke<GitStatusInfo>("git_status");
+}
+
+/** 浏览仓库货架：浅克隆 → 500MB 闸 → index.json/降级扫描。无 git 自动降级 archive 通道。 */
+export function repoBrowse(url: string): Promise<ShelfPreview> {
+  if (isMockMode()) {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        if (/fail/i.test(url)) {
+          reject(new Error("未找到 .skillpack 货架包（已检查 index.json 并扫描目录 3 层），请确认仓库布局"));
+          return;
+        }
+        resolve({
+          ...MOCK_SHELF,
+          packs: MOCK_SHELF.packs.map((p) => ({ ...p })),
+          token: `shelf-mock-${Date.now().toString(16)}`,
+        });
+      }, 1200);
+    });
+  }
+  return invoke<ShelfPreview>("repo_browse", { url });
+}
+
+/** 勾选导入：逐包 pack_import；部分失败不回滚；完成后清理临时目录。 */
+export function repoImportCommit(params: {
+  token: string;
+  selected: string[];
+}): Promise<RepoImportResult> {
+  if (isMockMode()) {
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        const selected = new Set(params.selected);
+        const chosen = MOCK_SHELF.packs.filter((p) => selected.has(p.path));
+        const imported: PackInfo[] = chosen.map((p) => {
+          const info: PackInfo = {
+            id: p.id,
+            name: p.name,
+            ver: p.ver,
+            author: "mock-shelf",
+            created_at: new Date().toISOString(),
+            skill_count: p.skill_count,
+            translated: 0,
+            overview: p.summary_zh || "Mock 货架包",
+            summary_source: "static",
+            skill_names: Array.from(
+              { length: Math.min(p.skill_count, 3) },
+              (_, i) => `skill-${i + 1}`
+            ),
+          };
+          MOCK_PACKS.push(info);
+          return info;
+        });
+        const warnings = chosen
+          .filter((p) => p.sha256_mismatch)
+          .map((p) => `「${p.name}」货架清单声明的 sha256 与包内容不一致（清单可能过期），已按包内自验结果导入`);
+        resolve({ imported, failed: [], warnings });
+      }, 800);
+    });
+  }
+  return invoke<RepoImportResult>("repo_import_commit", params);
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { CommandSearch } from "@/components/common/CommandSearch";
 import { ImportDialog } from "@/components/skill/ImportDialog";
 import { UrlImportDialog } from "@/components/skill/UrlImportDialog";
+import { RepoBrowseDialog } from "@/components/skill/RepoBrowseDialog";
 import {
   packDelete,
   packExport,
@@ -30,6 +31,7 @@ import {
   hubListTools,
   type ImportSource,
   type PackInfo,
+  type RepoImportResult,
 } from "@/lib/api";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useSkills, type Skill, type LayoutMode } from "@/hooks/useSkills";
@@ -96,6 +98,7 @@ function App() {
   // Skill Packs（PLAN-05 P1：真实数据）
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [packDialogOpen, setPackDialogOpen] = useState(false);
+  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PackInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -208,6 +211,25 @@ function App() {
     // 与 zip 导入同入口：后端按 pack.json 自动分流（PLAN-05 §3）
     handleZipImport();
   }, [handleZipImport]);
+
+  const handleRepoImport = useCallback(() => {
+    setRepoDialogOpen(true);
+  }, []);
+
+  const handleRepoImported = useCallback(
+    (result: RepoImportResult) => {
+      const ok = result.imported.length;
+      const fail = result.failed.length;
+      if (fail === 0) {
+        toast.success(`已从货架导入 ${ok} 个 Pack`);
+      } else {
+        toast.warning(`导入完成：${ok} 成功 / ${fail} 失败`);
+      }
+      loadPacks();
+      setTab("packs");
+    },
+    [loadPacks]
+  );
 
   const handlePackImported = useCallback(
     (info: PackInfo) => {
@@ -364,6 +386,7 @@ function App() {
               packs={packs}
               onCreatePack={handleCreatePack}
               onImportPack={handleImportPack}
+              onRepoImport={handleRepoImport}
               onPackAction={handlePackAction}
               layout={layout}
               onLayoutChange={handleLayoutChange}
@@ -437,6 +460,13 @@ function App() {
         <UrlImportDialog
           onClose={() => setUrlDialogOpen(false)}
           onReady={(s) => setImportSource(s)}
+        />
+      )}
+
+      {repoDialogOpen && (
+        <RepoBrowseDialog
+          onClose={() => setRepoDialogOpen(false)}
+          onImported={handleRepoImported}
         />
       )}
 

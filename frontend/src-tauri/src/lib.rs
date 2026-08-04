@@ -1,9 +1,11 @@
 mod commands;
 mod config;
+mod git;
 mod hub;
 mod import;
 mod pack;
 mod scanner;
+mod shelf;
 mod translations;
 mod validate;
 
@@ -49,6 +51,9 @@ pub fn run() {
             commands::pack_install,
             commands::pack_delete,
             commands::skill_validate,
+            commands::git_status,
+            commands::repo_browse,
+            commands::repo_import_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

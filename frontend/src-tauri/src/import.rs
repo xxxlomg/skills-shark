@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
 use crate::scanner;
@@ -329,13 +328,13 @@ fn register_token(src: PendingSource) -> String {
     token
 }
 
-fn is_zip(bytes: &[u8]) -> bool {
+pub(crate) fn is_zip(bytes: &[u8]) -> bool {
     bytes.len() > 4 && &bytes[0..4] == b"PK\x03\x04"
 }
 
 const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
 
-fn http_get(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn http_get(url: &str) -> Result<Vec<u8>, String> {
     let resp = ureq::get(url)
         .header("User-Agent", "skills-shark/0.2")
         .call()
@@ -364,7 +363,7 @@ fn http_get(url: &str) -> Result<Vec<u8>, String> {
 }
 
 /// GitHub/Gitee 仓库页地址 → archive zip 候选地址
-fn repo_archive_urls(url: &str) -> Vec<String> {
+pub(crate) fn repo_archive_urls(url: &str) -> Vec<String> {
     let trimmed = url.trim().trim_end_matches('/');
     let without_scheme = trimmed.split("://").last().unwrap_or(trimmed);
     let parts: Vec<&str> = without_scheme.split('/').collect();
@@ -389,7 +388,7 @@ fn repo_archive_urls(url: &str) -> Vec<String> {
     }
 }
 
-fn stem_from_url(url: &str) -> String {
+pub(crate) fn stem_from_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
     let path = trimmed.split("://").last().unwrap_or(trimmed);
     let seg = path
@@ -442,7 +441,7 @@ pub(crate) fn unwrap_single_dir(root: &Path) -> PathBuf {
     }
 }
 
-pub fn preview_url(url: &str) -> Result<ImportPreview, String> {
+pub async fn preview_url(url: &str) -> Result<ImportPreview, String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("URL 为空".to_string());
@@ -463,19 +462,34 @@ pub fn preview_url(url: &str) -> Result<ImportPreview, String> {
         try_urls.push(url.to_string());
     }
 
+    // archive 尝试走阻塞线程（ureq 同步 IO），clone 兜底走 git.rs 异步层
+    let original = url.to_string();
+    let archive_result = tokio::task::spawn_blocking(move || {
+        try_archive_urls(&try_urls, &original)
+    })
+    .await
+    .map_err(|e| format!("内部错误: {}", e))?;
+
+    match archive_result {
+        Ok(preview) => Ok(preview),
+        Err(last_err) => preview_via_clone(url, &last_err).await,
+    }
+}
+
+fn try_archive_urls(try_urls: &[String], original_url: &str) -> Result<ImportPreview, String> {
     let mut last_err = String::new();
-    for u in &try_urls {
+    for u in try_urls {
         match http_get(u) {
             Ok(bytes) if is_zip(&bytes) => {
                 let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
                 let zip_file = tmp.path().join("download.zip");
                 fs::write(&zip_file, &bytes).map_err(|e| e.to_string())?;
                 let mut preview = preview_zip(&zip_file)?;
-                preview.default_stem = stem_from_url(url);
+                preview.default_stem = stem_from_url(original_url);
                 preview.token = Some(register_token(PendingSource::Zip(
                     zip_file,
                     tmp,
-                    url.to_string(),
+                    original_url.to_string(),
                 )));
                 return Ok(preview);
             }
@@ -483,29 +497,30 @@ pub fn preview_url(url: &str) -> Result<ImportPreview, String> {
             Err(e) => last_err = e,
         }
     }
-
-    // archive 全失败 → git clone 兜底（D4）
-    preview_via_clone(url, &last_err)
+    Err(last_err)
 }
 
-fn preview_via_clone(url: &str, archive_err: &str) -> Result<ImportPreview, String> {
-    let git_ok = Command::new("git")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !git_ok {
+/// archive 全失败 → git clone 兜底（D4；模块 A 起统一走 git.rs 封装层）
+async fn preview_via_clone(url: &str, archive_err: &str) -> Result<ImportPreview, String> {
+    if !crate::git::detect().installed {
         return Err(format!("{}；且本机无 git 可兜底", archive_err));
     }
     let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
     let clone_dir = tmp.path().join("repo");
-    let out = Command::new("git")
-        .args(["clone", "--depth", "1", url, clone_dir.to_string_lossy().as_ref()])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let stderr: String = String::from_utf8_lossy(&out.stderr).chars().take(300).collect();
-        return Err(format!("{}；git clone 亦失败: {}", archive_err, stderr));
+    if let Err(e) = crate::git::run(
+        None,
+        &[
+            "clone",
+            "--depth",
+            "1",
+            "--single-branch",
+            url,
+            clone_dir.to_string_lossy().as_ref(),
+        ],
+    )
+    .await
+    {
+        return Err(format!("{}；git clone 亦失败: {}", archive_err, e.message()));
     }
     let root = unwrap_single_dir(&clone_dir);
     let mut preview = preview_dir(&root, &stem_from_url(url))?;

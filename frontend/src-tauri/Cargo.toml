@@ -29,3 +29,4 @@ ureq = "3.3.0"
 junction = "2.0.0"
 trash = "5.2.6"
 serde_yaml_ng = "0.10.0"
+tokio = { version = "1", features = ["process", "time", "rt", "macros"] }

@@ -6,6 +6,7 @@ use crate::hub;
 use crate::import;
 use crate::pack;
 use crate::scanner::{self, Skill};
+use crate::shelf;
 use crate::translations;
 
 // ---------------------------------------------------------------------------
@@ -388,9 +389,9 @@ pub fn commit_zip_import(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn preview_url_import(url: String) -> Result<import::ImportPreview, String> {
+pub async fn preview_url_import(url: String) -> Result<import::ImportPreview, String> {
     config::debug_log(&format!("preview_url_import: {}", url));
-    import::preview_url(&url)
+    import::preview_url(&url).await
 }
 
 #[tauri::command]
@@ -460,6 +461,44 @@ pub fn pack_install(id: String) -> Result<usize, String> {
 #[tauri::command]
 pub fn pack_delete(id: String) -> Result<(), String> {
     pack::delete_pack(&config::packs_dir(), &id)
+}
+
+// ---------------------------------------------------------------------------
+// 模块 A：Git 仓库货架导入（PLAN-06 §1.8/§1.9/§1.11；MEMO-A）
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitStatusInfo {
+    pub installed: bool,
+    pub version: String,
+}
+
+/// git 可用性探测（会话内缓存；设置页/导入入口的使能依据）
+#[tauri::command]
+pub fn git_status() -> GitStatusInfo {
+    let info = crate::git::detect();
+    GitStatusInfo {
+        installed: info.installed,
+        version: info.version,
+    }
+}
+
+/// 浏览仓库货架：浅克隆（无 git 时降级 archive 通道）→ 500MB 闸
+/// → index.json 或降级扫描 → pending token。async（clone 可能分钟级）。
+#[tauri::command]
+pub async fn repo_browse(url: String) -> Result<shelf::ShelfPreview, String> {
+    config::debug_log(&format!("repo_browse: {}", url));
+    shelf::repo_browse(&url).await
+}
+
+/// 勾选导入：逐包 pack::import_pack；部分失败不回滚；完成后清理 clone 目录。
+#[tauri::command]
+pub fn repo_import_commit(
+    token: String,
+    selected: Vec<String>,
+) -> Result<shelf::RepoImportResult, String> {
+    config::debug_log(&format!("repo_import_commit: {} 个包", selected.len()));
+    shelf::repo_import_commit(&token, &selected)
 }
 
 // ---------------------------------------------------------------------------
