@@ -6,7 +6,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { BackgroundFX } from "@/components/layout/BackgroundFX";
 import { Topbar } from "@/components/layout/Topbar";
 import { StatBar } from "@/components/layout/StatBar";
-import { TabNav, type TabMode } from "@/components/layout/TabNav";
+import { TabNav } from "@/components/layout/TabNav";
+import { DEFAULT_VIEW, type ViewId } from "@/lib/view-registry";
+import { HubView } from "@/components/hub/HubView";
+import { LinkDialog } from "@/components/hub/LinkDialog";
 import { Footer } from "@/components/layout/Footer";
 import { HomeView } from "@/components/skill/HomeView";
 import { CategoryView } from "@/components/skill/CategoryView";
@@ -49,7 +52,7 @@ function readLayout(): LayoutMode {
 function App() {
   const { skills, groups, loading, error, sync, refresh } = useSkills();
 
-  const [tab, setTab] = useState<TabMode>("lib");
+  const [tab, setTab] = useState<ViewId>(DEFAULT_VIEW);
   const [view, setView] = useState<View>({ type: "home" });
   const [layout, setLayout] = useState<LayoutMode>(readLayout);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
@@ -111,6 +114,21 @@ function App() {
   // ---- 导入（PLAN-04 §3：zip 本地 + URL 远程）----
   const [importSource, setImportSource] = useState<ImportSource | null>(null);
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
+
+  // ---- Hub 引用（PLAN-06 §2.8，B5）：新建引用对话框由 App 统一持有，
+  // Hub 页与技能详情页共用同一实例 ----
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkInitialSkillId, setLinkInitialSkillId] = useState<string | null>(null);
+
+  const openLinkDialog = useCallback((skillId?: string) => {
+    setLinkInitialSkillId(skillId ?? null);
+    setLinkDialogOpen(true);
+  }, []);
+
+  const closeLinkDialog = useCallback(() => {
+    setLinkDialogOpen(false);
+    setLinkInitialSkillId(null);
+  }, []);
 
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
@@ -292,7 +310,14 @@ function App() {
 
           <TabNav activeTab={tab} onChange={setTab} />
 
-          {tab === "packs" ? (
+          {/* 视图分发：按视图注册表 id 路由（PLAN-06 §7.6）。
+              新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。 */}
+          {tab === "hub" ? (
+            <HubView
+              onOpenLink={() => openLinkDialog()}
+              onSkillsRefresh={refresh}
+            />
+          ) : tab === "packs" ? (
             <PacksView
               packs={packs}
               onCreatePack={handleCreatePack}
@@ -350,7 +375,17 @@ function App() {
         onClose={handleCloseModal}
         onSettingsOpen={() => setSettingsOpen(true)}
         onTranslateDone={handleSync}
+        onLinkSkill={(s) => openLinkDialog(s.id)}
       />
+
+      {linkDialogOpen && (
+        <LinkDialog
+          skills={skills}
+          initialSkillId={linkInitialSkillId}
+          onClose={closeLinkDialog}
+          onLinked={refresh}
+        />
+      )}
 
       {urlDialogOpen && (
         <UrlImportDialog

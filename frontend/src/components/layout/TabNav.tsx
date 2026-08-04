@@ -1,33 +1,28 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Boxes, Package } from "lucide-react";
-
-export type TabMode = "lib" | "packs";
+import { VIEW_REGISTRY, type ViewId } from "@/lib/view-registry";
 
 interface TabNavProps {
-  activeTab: TabMode;
-  onChange: (tab: TabMode) => void;
+  activeTab: ViewId;
+  onChange: (tab: ViewId) => void;
 }
 
-const TABS: { key: TabMode; label: string; icon: typeof Boxes }[] = [
-  { key: "lib", label: "技能库", icon: Boxes },
-  { key: "packs", label: "Packs", icon: Package },
-];
-
 /**
- * 双 Tab 导航（技能库 / Packs），带滑块指示器。
+ * 主导航，带滑块指示器。
+ *
+ * PLAN-06 §7.6：导航项完全数据驱动——本组件只消费 VIEW_REGISTRY
+ * （id + 标题 + 图标 + 权重），不硬编码 Tab 数量与顺序、不感知具体业务视图。
+ * 交互稿定稿后改注册表数据即接入，不重写本组件。
+ *
  * 视觉来源：docs/style.css .tabnav / .tab-ind
  * 滑块位置通过 ref 测量按钮 offsetLeft/offsetWidth 计算，resize 时重算。
  */
 export function TabNav({ activeTab, onChange }: TabNavProps) {
-  const btnRefs = useRef<Record<TabMode, HTMLButtonElement | null>>({
-    lib: null,
-    packs: null,
-  });
+  const btnRefs = useRef<Map<ViewId, HTMLButtonElement | null>>(new Map());
   const [indicator, setIndicator] = useState({ x: 0, width: 0, ready: false });
 
   useLayoutEffect(() => {
     const measure = () => {
-      const btn = btnRefs.current[activeTab];
+      const btn = btnRefs.current.get(activeTab);
       if (!btn) return;
       // tab-ind 定位在 left:5px，按钮 offsetLeft 相对 nav（offsetParent）
       setIndicator({
@@ -63,24 +58,25 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
           }}
         />
 
-        {TABS.map((tab) => {
-          const active = activeTab === tab.key;
+        {VIEW_REGISTRY.map((view) => {
+          const active = activeTab === view.id;
+          const Icon = view.icon;
           return (
             <button
-              key={tab.key}
+              key={view.id}
               type="button"
               ref={(el) => {
-                btnRefs.current[tab.key] = el;
+                btnRefs.current.set(view.id, el);
               }}
-              onClick={() => onChange(tab.key)}
+              onClick={() => onChange(view.id)}
               aria-pressed={active}
               className={`relative z-[2] flex items-center gap-[7px] rounded-[10px] border-0 bg-transparent px-[18px] py-2 font-body text-[13.5px] font-medium transition-colors duration-250 ${
                 active ? "text-text-primary" : "text-text-secondary"
               }`}
               style={{ cursor: "pointer" }}
             >
-              <tab.icon className="h-[15px] w-[15px]" />
-              {tab.label}
+              <Icon className="h-[15px] w-[15px]" />
+              {view.label}
             </button>
           );
         })}

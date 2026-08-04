@@ -1,4 +1,5 @@
 import { memo, type CSSProperties } from "react";
+import { FolderSymlink } from "lucide-react";
 import type { Skill } from "@/hooks/useSkills";
 import { StatusBadge } from "./StatusBadge";
 
@@ -30,8 +31,14 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, onClick
             {skill.emoji || "🧩"}
           </span>
           <div className="relative z-[1] min-w-0 flex-1">
-            <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
-              {displayName}
+            <h3 className="flex items-center gap-1.5 truncate font-display text-[15.5px] font-semibold text-text-primary">
+              <span className="truncate">{displayName}</span>
+              {skill.hub_linked && (
+                <FolderSymlink
+                  aria-label="Hub 链接落点"
+                  className="h-3.5 w-3.5 shrink-0 text-text-tertiary"
+                />
+              )}
             </h3>
             <p className="truncate font-mono text-[11px] text-text-tertiary">
               {skill.name} · {skill.scan_label}
@@ -58,8 +65,14 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, onClick
           </span>
           <StatusBadge skill={skill} />
         </div>
-        <h3 className="relative z-[1] mt-4 font-display text-[19px] font-semibold leading-snug text-text-primary">
-          {displayName}
+        <h3 className="relative z-[1] mt-4 flex items-start gap-1.5 font-display text-[19px] font-semibold leading-snug text-text-primary">
+          <span className="min-w-0">{displayName}</span>
+          {skill.hub_linked && (
+            <FolderSymlink
+              aria-label="Hub 链接落点"
+              className="mt-[5px] h-4 w-4 shrink-0 text-text-tertiary"
+            />
+          )}
         </h3>
         <p className="relative z-[1] mt-[3px] font-mono text-[12px] text-text-tertiary">
           {skill.name} · {skill.scan_label}

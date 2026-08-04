@@ -14,6 +14,18 @@ export interface Skill {
   emoji: string | null;
   scan_label: string;
   source_path: string;
+  /** v0.2（B4）：实际扫描到的技能目录（junction 落点不穿透，hub 操作锚点） */
+  skill_dir: string;
+  /** 来源工具注册表 id */
+  tool_id: string;
+  /** 同名组代表卡片（B4 代表选取） */
+  is_representative: boolean;
+  /** 其他持有同名技能的工具 id 列表（UI 徽标用） */
+  other_sources: string[];
+  /** 该目录是 junction（hub link 落点） */
+  hub_linked: boolean;
+  /** 账本中对应的 link id（供解除引用/转副本） */
+  hub_link_id: string | null;
   has_translation: boolean;
   title_zh: string;
   /** 译文中的中文描述（无译文为空串），展示优先于 description */

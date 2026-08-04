@@ -6,6 +6,7 @@ import {
   X,
   Languages,
   Loader2,
+  FolderSymlink,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -36,6 +37,8 @@ interface DetailSheetProps {
   onClose: () => void;
   onSettingsOpen?: () => void;
   onTranslateDone?: () => void;
+  /** 引用到其他工具（PLAN-06 §2.8，B5） */
+  onLinkSkill?: (skill: Skill) => void;
 }
 
 export function DetailSheet({
@@ -44,6 +47,7 @@ export function DetailSheet({
   onClose,
   onSettingsOpen,
   onTranslateDone,
+  onLinkSkill,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
   const [bilingual, setBilingual] = useState<BilingualContent | null>(null);
@@ -308,6 +312,22 @@ export function DetailSheet({
                 </Badge>
               </div>
             )}
+            {/* B4 聚合徽标：junction 落点 + 同名技能的其他出处 */}
+            {(skill.hub_linked || skill.other_sources.length > 0) && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {skill.hub_linked && (
+                  <Badge variant="secondary" className="text-[11px]">
+                    <FolderSymlink className="mr-1 h-3 w-3" />
+                    Hub 链接落点
+                  </Badge>
+                )}
+                {skill.other_sources.map((t) => (
+                  <Badge key={t} variant="outline" className="text-[11px]">
+                    同见于 {t}
+                  </Badge>
+                ))}
+              </div>
+            )}
             <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
               {displayDesc || "无描述"}
             </p>
@@ -372,6 +392,18 @@ export function DetailSheet({
                   : skill.has_translation
                     ? "重新翻译"
                     : "翻译"}
+              </button>
+            )}
+
+            {/* 引用到其他工具（PLAN-06 §2.8，B5）— 已删除的 skill 不显示 */}
+            {!isDeleted && onLinkSkill && (
+              <button
+                type="button"
+                className="mbtn"
+                onClick={() => onLinkSkill(skill)}
+              >
+                <FolderSymlink className="h-3.5 w-3.5" />
+                引用
               </button>
             )}
 
