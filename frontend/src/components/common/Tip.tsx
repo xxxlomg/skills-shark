@@ -1,4 +1,9 @@
 import type { ReactNode } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TipProps {
   label: string;
@@ -9,20 +14,23 @@ interface TipProps {
 
 /**
  * 主题化悬浮提示：玻璃材质气泡，替代原生 title 的白底字条。
- * 纯 CSS 显隐（group-hover），无 JS 定位。
+ *
+ * 基于 Radix Tooltip 的 Portal 渲染到 body：
+ * 卡片带 backdrop-filter（独立层叠上下文）且 overflow-hidden，
+ * 卡内绝对定位气泡会被兄弟卡片遮挡、被卡片裁切；
+ * Portal + z-50 一次性 escape 两者（网格/列表态均适用）。
  */
 export function Tip({ label, children, side = "bottom" }: TipProps) {
   return (
-    <span className="group/tip relative inline-flex">
-      {children}
-      <span
-        role="tooltip"
-        className={`tip-bubble pointer-events-none absolute left-1/2 z-30 w-max max-w-[240px] -translate-x-1/2 rounded-[10px] px-[10px] py-[5px] text-[11px] leading-snug opacity-0 transition-opacity duration-150 group-hover/tip:opacity-100 ${
-          side === "top" ? "bottom-full mb-[6px]" : "top-full mt-[6px]"
-        }`}
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side={side}
+        sideOffset={6}
+        className="tip-bubble max-w-[240px] rounded-[10px] border-0 px-[10px] py-[5px] text-[11px] leading-snug"
       >
         {label}
-      </span>
-    </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
