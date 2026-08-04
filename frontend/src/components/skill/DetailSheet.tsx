@@ -39,6 +39,8 @@ interface DetailSheetProps {
   onTranslateDone?: () => void;
   /** 引用到其他工具（PLAN-06 §2.8，B5） */
   onLinkSkill?: (skill: Skill) => void;
+  /** 工具 id → 显示名（B4 徽标用；缺省回退原始 id） */
+  toolNames?: Record<string, string>;
 }
 
 export function DetailSheet({
@@ -48,6 +50,7 @@ export function DetailSheet({
   onSettingsOpen,
   onTranslateDone,
   onLinkSkill,
+  toolNames,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
   const [bilingual, setBilingual] = useState<BilingualContent | null>(null);
@@ -323,7 +326,7 @@ export function DetailSheet({
                 )}
                 {skill.other_sources.map((t) => (
                   <Badge key={t} variant="outline" className="text-[11px]">
-                    同见于 {t}
+                    同见于 {toolNames?.[t] ?? t}
                   </Badge>
                 ))}
               </div>

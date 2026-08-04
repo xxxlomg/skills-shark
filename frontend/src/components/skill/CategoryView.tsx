@@ -30,6 +30,8 @@ interface CategoryViewProps {
   onSkillClick: (skill: Skill) => void;
   onSettingsOpen?: () => void;
   onTranslateDone?: () => void;
+  /** 工具 id → 显示名（B4 徽标） */
+  toolNames?: Record<string, string>;
 }
 
 const PREVIEW_MAX = 3;
@@ -43,6 +45,7 @@ export function CategoryView({
   onSkillClick,
   onSettingsOpen,
   onTranslateDone,
+  toolNames,
 }: CategoryViewProps) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -125,6 +128,7 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="grid"
+            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}
@@ -137,6 +141,7 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="list"
+            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}

@@ -27,6 +27,7 @@ import {
   packExport,
   packInstall,
   packsList,
+  hubListTools,
   type ImportSource,
   type PackInfo,
 } from "@/lib/api";
@@ -132,16 +133,33 @@ function App() {
 
   // 建链成功后联动刷新：技能扫描 + Hub 台账令牌（修复台账不自动刷新）
   const [hubToken, setHubToken] = useState(0);
+
+  // B4：工具注册表 id → 显示名（卡片 installations 徽标用）
+  const [toolNames, setToolNames] = useState<Record<string, string>>({});
+  const loadToolNames = useCallback(async () => {
+    try {
+      const list = await hubListTools();
+      setToolNames(Object.fromEntries(list.map((t) => [t.id, t.name])));
+    } catch {
+      // 拿不到就用原始 id 回退（SkillCard/DetailSheet 内部已兜底）
+    }
+  }, []);
+  useEffect(() => {
+    loadToolNames();
+  }, [loadToolNames]);
+
   const handleLinked = useCallback(() => {
     refresh();
     setHubToken((t) => t + 1);
-  }, [refresh]);
+    loadToolNames();
+  }, [refresh, loadToolNames]);
 
   // 设置页工具管理改动（启停/增删/删带引用工具）同样要刷 Hub 台账
   const handleSettingsSaved = useCallback(() => {
     refresh();
     setHubToken((t) => t + 1);
-  }, [refresh]);
+    loadToolNames();
+  }, [refresh, loadToolNames]);
 
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
@@ -385,6 +403,7 @@ function App() {
               onSkillClick={handleSkillClick}
               onSettingsOpen={() => setSettingsOpen(true)}
               onTranslateDone={handleSync}
+              toolNames={toolNames}
             />
           ) : (
             <EmptyState />
@@ -402,6 +421,7 @@ function App() {
         onSettingsOpen={() => setSettingsOpen(true)}
         onTranslateDone={handleSync}
         onLinkSkill={(s) => openLinkDialog(s.id)}
+        toolNames={toolNames}
       />
 
       {linkDialogOpen && (

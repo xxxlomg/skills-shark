@@ -128,6 +128,12 @@ export function useSkills() {
   }, [refresh]);
 
   /**
+   * B4 折叠：同名技能跨工具只留代表卡（后端确定性选取）。
+   * 全量 `skills` 仍保留——sync_deleted 依赖全量 id 防误杀译文。
+   */
+  const visible = useMemo(() => skills.filter((s) => s.is_representative), [skills]);
+
+  /**
    * 按 scan_label 分组，保持首次出现顺序。
    * 空标签归"未分类"，排最后。
    * 0 个 skill 的组不输出。
@@ -136,7 +142,7 @@ export function useSkills() {
     const map = new Map<string, Skill[]>();
     const order: string[] = [];
 
-    for (const s of skills) {
+    for (const s of visible) {
       const key = s.scan_label || "未分类";
       if (!map.has(key)) {
         map.set(key, []);
@@ -153,10 +159,11 @@ export function useSkills() {
     return sorted
       .map((label) => ({ label, skills: map.get(label)! }))
       .filter((g) => g.skills.length > 0);
-  }, [skills]);
+  }, [visible]);
 
   return {
     skills,
+    visible,
     groups,
     loading,
     error,

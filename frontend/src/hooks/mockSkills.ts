@@ -19,6 +19,12 @@ const mk = (
     lost?: boolean;
     del?: boolean;
     coll?: string | null;
+    /** 覆盖 tool_id（默认取 scan 小写；聚合样本需对齐 MOCK_TOOLS 真实 id） */
+    tool?: string;
+    /** 非代表卡（B4 折叠样本：UI 不显示，仅 sync_deleted 用） */
+    reps?: boolean;
+    /** 其他持有同名技能的工具 id（B4 徽标样本） */
+    others?: string[];
   } = {}
 ): Skill => ({
   id,
@@ -29,9 +35,9 @@ const mk = (
   scan_label: scan,
   source_path: `/mock/${scan}/${name}/SKILL.md`,
   skill_dir: `/mock/${scan}/${name}`,
-  tool_id: scan === "builtin" ? "builtin" : scan.toLowerCase(),
-  is_representative: true,
-  other_sources: [],
+  tool_id: opts.tool ?? (scan === "builtin" ? "builtin" : scan.toLowerCase()),
+  is_representative: opts.reps ?? true,
+  other_sources: opts.others ?? [],
   hub_linked: false,
   hub_link_id: null,
   has_translation: (opts.trans ?? false) && !(opts.lost ?? false),
@@ -49,7 +55,7 @@ export const MOCK_SKILLS: Skill[] = [
 
   // Claude（5，含一个未译、一个含合集）
   mk("c1", "code-review", "🔍", "Deep code review focused on boundaries, concurrency and readability", "Claude", { zh: "代码审查", dz: "深度代码审查，关注边界、并发与可读性", trans: true }),
-  mk("c2", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Claude", { zh: "提交信息生成", trans: true }),
+  mk("c2", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Claude", { zh: "提交信息生成", trans: true, tool: "claude-code", others: ["codex"] }),
   mk("c3", "test-gen", "🧪", "为给定函数生成边界覆盖的单元测试", "Claude", { zh: "单测生成", trans: true, coll: "Claude/testing" }),
   mk("c4", "spring-helper", "🍃", "Spring Boot 配置与依赖排错助手", "Claude", { trans: false, coll: "Claude/testing" }),
   mk("c5", "refactor", "🔧", "在保证行为不变的前提下给出重构建议", "Claude", { zh: "重构助手", lost: true }),
@@ -69,6 +75,8 @@ export const MOCK_SKILLS: Skill[] = [
   mk("x2", "git-flow", "🔀", "编排 rebase / cherry-pick 工作流", "Codex", { trans: false }),
   mk("x3", "regex-doctor", "🩺", "诊断与解释复杂正则表达式", "Codex", { zh: "正则诊断", trans: true }),
   mk("x4", "perf-profiler", "⚡", "定位热点函数与内存泄漏", "Codex", { zh: "性能剖析", trans: true }),
+  // B4 聚合样本：commit-msg 同名双装，此条为非代表副本（UI 折叠，仅 sync_deleted 保留）
+  mk("x5", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Codex", { zh: "提交信息生成", trans: true, tool: "codex", reps: false, others: ["claude-code"] }),
 ];
 
 export const MOCK_PACKS: PackInfo[] = [
