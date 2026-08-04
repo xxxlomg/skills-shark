@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::{self, AppConfig, MaskedConfig, ScanPathItem};
+use crate::hub;
 use crate::import;
 use crate::pack;
 use crate::scanner::{self, Skill};
@@ -15,12 +16,34 @@ use crate::translations;
 pub fn scan_skills() -> Vec<Skill> {
     let start = std::time::Instant::now();
     let cfg = config::load_config();
-    let scan_items = config::scan_items_from_tools(&cfg.tools);
-    let paths: Vec<String> = scan_items
+    let targets = config::scan_targets_from_tools(&cfg.tools);
+    let paths: Vec<String> = targets
         .iter()
-        .map(|p| format!("{} ({})", p.path, p.label))
+        .map(|t| format!("{} ({})", t.path, t.label))
         .collect();
-    let result = scanner::scan_all_skills(&scan_items);
+    let mut result = scanner::scan_all_skills(&targets);
+    // hub 账本 join：junction 落点标记补充 link id（供 UI 解除引用/转副本）
+    let ledger = hub::load_ledger(&config::get_data_dir());
+    if !ledger.links.is_empty() {
+        let by_target: std::collections::HashMap<String, String> = ledger
+            .links
+            .iter()
+            .map(|l| {
+                (
+                    config::norm_for_compare(std::path::Path::new(&l.target)),
+                    l.id.clone(),
+                )
+            })
+            .collect();
+        for skill in result.iter_mut() {
+            if skill.hub_linked {
+                let key = config::norm_for_compare(std::path::Path::new(&skill.skill_dir));
+                if let Some(id) = by_target.get(&key) {
+                    skill.hub_link_id = Some(id.clone());
+                }
+            }
+        }
+    }
     config::debug_log(&format!(
         "scan_skills: paths=[{}] found={} elapsed={}ms",
         paths.join(" | "),
@@ -229,8 +252,8 @@ pub fn commit_url_import(
 pub fn sync_deleted(current_ids: Vec<String>) -> Vec<Skill> {
     let _ = translations::sync_deleted_status(&current_ids);
     let cfg = config::load_config();
-    let scan_items = config::scan_items_from_tools(&cfg.tools);
-    scanner::scan_all_skills(&scan_items)
+    let targets = config::scan_targets_from_tools(&cfg.tools);
+    scanner::scan_all_skills(&targets)
 }
 
 // ---------------------------------------------------------------------------

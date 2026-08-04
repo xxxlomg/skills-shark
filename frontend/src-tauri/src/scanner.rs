@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{self, ScanPathItem};
+use crate::config::{self, ScanTarget};
 use crate::translations;
 
 // ---------------------------------------------------------------------------
@@ -14,6 +14,8 @@ use crate::translations;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
+    /// v0.2（B4）：`tool_id|rel_dir` 稳定键，跨构建形态/路径漂移不变。
+    /// v0.1 键（hex8 虚拟 id / 路径哈希）在扫描时精确回退并 rekey 落盘。
     pub id: String,
     pub name: String,
     pub folder_name: String,
@@ -21,6 +23,25 @@ pub struct Skill {
     pub emoji: Option<String>,
     pub scan_label: String,
     pub source_path: String,
+    /// 实际扫描到的技能目录（junction 落点时不穿透——hub 操作锚点；
+    /// 与 source_path 的 canonical 值互补：后者透过 junction 指向出处文件）
+    #[serde(default)]
+    pub skill_dir: String,
+    /// 来源工具注册表 id（builtin/imported/custom-*/claude-code/...）
+    #[serde(default)]
+    pub tool_id: String,
+    /// 是否为同名组的代表卡片（B4 代表选取：tools 顺序即优先级）
+    #[serde(default = "default_true_bool")]
+    pub is_representative: bool,
+    /// 其他持有同名技能的工具 id 列表（UI 徽标/切换用）
+    #[serde(default)]
+    pub other_sources: Vec<String>,
+    /// 该目录是 junction（hub link 落点）
+    #[serde(default)]
+    pub hub_linked: bool,
+    /// 账本中对应的 link id（commands 层 join 填充；scanner 不读账本）
+    #[serde(default)]
+    pub hub_link_id: Option<String>,
     pub has_translation: bool,
     pub title_zh: String,
     /// 译文中 frontmatter description 的中文版本（扫描时从译文文件派生，
@@ -32,6 +53,10 @@ pub struct Skill {
     /// 一级 skill 为 None；嵌套 skill 为 Some("collection") 或 Some("a/b")。
     #[serde(default)]
     pub parent_collection: Option<String>,
+}
+
+fn default_true_bool() -> bool {
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -53,26 +78,29 @@ mod hex {
 }
 
 // ---------------------------------------------------------------------------
-// 虚拟 id（PLAN-04 §2.2）
+// 虚拟 id（v0.1 遗留键，B4 起仅用于译文回退 rekey）
 // ---------------------------------------------------------------------------
-
-/// app 自有源（物理位置随构建形态/data-dir 变化）→ 虚拟 id token；
-/// 外部用户配置源返回 None，保持绝对路径 id（独立唯一，不合并）。
-fn app_owned_token(label: &str, base: &Path) -> Option<String> {
-    if label == "builtin" {
-        return Some("builtin".to_string());
-    }
-    if base == config::imported_dir() {
-        return Some("imported".to_string());
-    }
-    None
-}
 
 fn make_virtual_id(token: &str, rel_dir: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}\x00{}", token, rel_dir).as_bytes());
     let result = hasher.finalize();
     hex::encode(&result[..8])
+}
+
+/// junction/symlink 目录探测（hub link 落点标记用）。
+/// junction::exists 只查 reparse point，不穿透目标，悬空链接也能识别。
+fn is_reparse_dir(p: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        junction::exists(p).unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        fs::symlink_metadata(p)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+    }
 }
 
 fn rel_dir_slashed(child: &Path, base: &Path) -> String {
@@ -177,8 +205,8 @@ fn scan_dir_recursive(
     depth: usize,
     base: &Path,
     scan_label: &str,
+    tool_id: &str,
     collection: Option<String>,
-    token: &Option<String>,
     translation_meta: &HashMap<String, translations::TranslationMeta>,
     skills: &mut Vec<Skill>,
     seen_ids: &mut std::collections::HashSet<String>,
@@ -214,8 +242,8 @@ fn scan_dir_recursive(
                 &skill_md,
                 base,
                 scan_label,
+                tool_id,
                 collection.clone(),
-                token,
                 translation_meta,
                 skills,
                 seen_ids,
@@ -232,8 +260,8 @@ fn scan_dir_recursive(
                 depth + 1,
                 base,
                 scan_label,
+                tool_id,
                 next_collection,
-                token,
                 translation_meta,
                 skills,
                 seen_ids,
@@ -243,15 +271,17 @@ fn scan_dir_recursive(
     }
 }
 
-/// 将一个含 SKILL.md 的目录注册为 Skill
+/// 将一个含 SKILL.md 的目录注册为 Skill。
+/// id = `tool_id|rel_dir`（v0.2 稳定键）；译文关联未命中时按序精确回退 v0.1
+/// 旧键并排队 rekey（①导入库拍平映射 ②虚拟 id/路径哈希 ③source_path 兜底）。
 #[allow(clippy::too_many_arguments)]
 fn register_skill(
     child: &Path,
     skill_md: &Path,
     base: &Path,
     scan_label: &str,
+    tool_id: &str,
     collection: Option<String>,
-    token: &Option<String>,
     translation_meta: &HashMap<String, translations::TranslationMeta>,
     skills: &mut Vec<Skill>,
     seen_ids: &mut std::collections::HashSet<String>,
@@ -262,12 +292,8 @@ fn register_skill(
         Err(_) => skill_md.to_string_lossy().to_string(),
     };
 
-    // app 自有源用虚拟 id（与绝对路径解耦），外部源保持绝对路径 id
     let rel = rel_dir_slashed(child, base);
-    let skill_id = match token {
-        Some(t) => make_virtual_id(t, &rel),
-        None => make_skill_id(&abs_path),
-    };
+    let skill_id = format!("{}|{}", tool_id, rel);
     if seen_ids.contains(&skill_id) {
         return;
     }
@@ -285,20 +311,24 @@ fn register_skill(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    // 翻译关联：新 id 直取；未命中时两类回退（命中即排队 rekey）：
-    // 1) 导入库拍平迁移：.import.json 映射精确派生旧虚拟 id；
-    // 2) 一次性迁移（§2.3）：source_path 精确相等，或 builtin 旧键的
-    //    source_path 以 rel/SKILL.md 结尾。
+    // v0.1 遗留键候选：app 自有源 = 虚拟 id；外部工具 = 路径哈希。
+    // 注意：junction 落点副本的 canonicalize 穿透回源文件，其 v0.1 路径哈希
+    // 与源技能旧键相同——按扫描顺序（tools 顺序，确定性）先者认领。
+    let legacy_virtual = if tool_id == config::TOOL_ID_BUILTIN || tool_id == config::TOOL_ID_IMPORTED
+    {
+        Some(make_virtual_id(tool_id, &rel))
+    } else {
+        None
+    };
+    let legacy_path = make_skill_id(&abs_path);
+
     let mut migrated_from: Option<String> = None;
     let tmeta = translation_meta.get(&skill_id).cloned().or_else(|| {
-        if token.is_none() {
-            return None;
-        }
-        // 导入库拍平迁移：按 .import.json 的 rel→folder 映射精确认领旧虚拟 id，
-        // 不做 basename 猜测（避免跨 stem 同名互偷）。
-        if scan_label == "导入" {
+        // ① 导入库拍平迁移：按 .import.json 的 rel→folder 映射精确认领旧虚拟 id，
+        //    不做 basename 猜测（避免跨 stem 同名互偷）。
+        if tool_id == config::TOOL_ID_IMPORTED {
             if let Some(old_id) = imported_old_id(base, &rel) {
-                if old_id.as_str() != skill_id.as_str() {
+                if old_id != skill_id {
                     if let Some(m) = translation_meta.get(&old_id) {
                         rekeys.push((old_id.clone(), skill_id.clone()));
                         migrated_from = Some(old_id);
@@ -306,6 +336,25 @@ fn register_skill(
                     }
                 }
             }
+        }
+        // ② v0.1 键直取
+        if let Some(lv) = &legacy_virtual {
+            if let Some(m) = translation_meta.get(lv) {
+                rekeys.push((lv.clone(), skill_id.clone()));
+                migrated_from = Some(lv.clone());
+                return Some(m.clone());
+            }
+        }
+        if let Some(m) = translation_meta.get(&legacy_path) {
+            rekeys.push((legacy_path.clone(), skill_id.clone()));
+            migrated_from = Some(legacy_path.clone());
+            return Some(m.clone());
+        }
+        // ③ 兜底仅限 app 自有源（对齐 v0.1 语义）：外部工具的旧键是路径哈希，
+        //    ②已精确覆盖；若放开 source_path 模糊匹配，junction 穿透造成的
+        //    canonical 同址会在多工具间按 HashMap 随机序互偷译文。
+        if tool_id != config::TOOL_ID_BUILTIN && tool_id != config::TOOL_ID_IMPORTED {
+            return None;
         }
         let rel_md = format!("{}/SKILL.md", rel);
         translation_meta
@@ -342,6 +391,12 @@ fn register_skill(
         emoji,
         scan_label: scan_label.to_string(),
         source_path: abs_path,
+        skill_dir: child.to_string_lossy().to_string(),
+        tool_id: tool_id.to_string(),
+        is_representative: true, // 代表选取 pass 精化
+        other_sources: vec![],
+        hub_linked: is_reparse_dir(child),
+        hub_link_id: None, // commands 层 join 账本填充
         has_translation,
         title_zh,
         description_zh,
@@ -351,30 +406,190 @@ fn register_skill(
 }
 
 // ---------------------------------------------------------------------------
+// 测试（B4 验收：稳定 rekey / 代表选取优先级 / junction 感知）
+// 注意：scanner 会只读加载真实 translations.json；下列用例的临时技能名与
+// 真实译文不可能碰撞，rekey 队列恒空 → 不产生任何写副作用。
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ScanTarget;
+
+    fn tmp_root(tag: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("sk-b4-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&p);
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn make_skill(root: &Path, name: &str) {
+        let d = root.join(name);
+        fs::create_dir_all(&d).unwrap();
+        fs::write(
+            d.join("SKILL.md"),
+            format!("---\nname: {}\ndescription: test skill\n---\nbody", name),
+        )
+        .unwrap();
+    }
+
+    fn target(path: &Path, tool_id: &str, label: &str) -> ScanTarget {
+        ScanTarget {
+            path: path.to_string_lossy().to_string(),
+            label: label.to_string(),
+            tool_id: tool_id.to_string(),
+        }
+    }
+
+    /// 过滤孤儿条目（scanner 会附带真实 translations.json 的孤儿，与本测试无关）
+    fn live(skills: Vec<Skill>) -> Vec<Skill> {
+        skills.into_iter().filter(|s| !s.source_deleted).collect()
+    }
+
+    #[test]
+    fn stable_rekey_format_and_nesting() {
+        let root = tmp_root("rekey");
+        let tool_a = root.join("a");
+        make_skill(&tool_a, "solo-a");
+        // 嵌套合集：pack/solo-b
+        let nested = tool_a.join("pack").join("solo-b");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            nested.join("SKILL.md"),
+            "---\nname: solo-b\ndescription: nested\n---\nbody",
+        )
+        .unwrap();
+
+        let skills = live(scan_all_skills(&[target(&tool_a, "claude-code", "Claude Code")]));
+        assert_eq!(skills.len(), 2);
+        let flat = skills.iter().find(|s| s.folder_name == "solo-a").unwrap();
+        assert_eq!(flat.id, "claude-code|solo-a", "顶层 id = tool_id|name");
+        assert_eq!(flat.tool_id, "claude-code");
+        assert_eq!(flat.parent_collection, None);
+        let nest = skills.iter().find(|s| s.folder_name == "solo-b").unwrap();
+        assert_eq!(nest.id, "claude-code|pack/solo-b", "嵌套 rel 消歧");
+        assert_eq!(nest.parent_collection.as_deref(), Some("pack"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn representative_selection_cross_tool_priority() {
+        let root = tmp_root("rep");
+        let tool_a = root.join("a"); // 优先级高（扫描顺序在前）
+        let tool_b = root.join("b");
+        make_skill(&tool_a, "pdf-toolkit");
+        make_skill(&tool_a, "only-a");
+        make_skill(&tool_b, "pdf-toolkit"); // 同名副本
+        make_skill(&tool_b, "only-b");
+
+        let skills = live(scan_all_skills(&[
+            target(&tool_a, "claude-code", "Claude Code"),
+            target(&tool_b, "codex", "Codex CLI"),
+        ]));
+        assert_eq!(skills.len(), 4, "非代表副本保留在输出（防 sync_deleted 误杀译文）");
+
+        let rep = skills
+            .iter()
+            .find(|s| s.id == "claude-code|pdf-toolkit")
+            .unwrap();
+        assert!(rep.is_representative, "扫描顺序首个 = 代表");
+        assert_eq!(rep.other_sources, vec!["codex".to_string()]);
+
+        let cand = skills.iter().find(|s| s.id == "codex|pdf-toolkit").unwrap();
+        assert!(!cand.is_representative);
+        assert_eq!(cand.other_sources, vec!["claude-code".to_string()]);
+
+        // 无同名者不受影响
+        let solo = skills.iter().find(|s| s.id == "claude-code|only-a").unwrap();
+        assert!(solo.is_representative && solo.other_sources.is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn same_tool_collection_namesakes_not_collapsed() {
+        let root = tmp_root("same-tool");
+        let tool_a = root.join("a");
+        for coll in ["x", "y"] {
+            let d = tool_a.join(coll).join("dup");
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("SKILL.md"), "---\nname: dup\ndescription: d\n---\nb").unwrap();
+        }
+        let skills = live(scan_all_skills(&[target(&tool_a, "claude-code", "Claude Code")]));
+        assert_eq!(skills.len(), 2);
+        // 同工具内不同合集的同名目录 = 不同技能，均为代表
+        assert!(skills.iter().all(|s| s.is_representative));
+        assert!(skills.iter().all(|s| s.other_sources.is_empty()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hub_linked_junction_detected_and_repped() {
+        let root = tmp_root("junction");
+        let src_tool = root.join("claude"); // 出处工具
+        let tgt_tool = root.join("codex"); // 引用落点工具
+        fs::create_dir_all(&src_tool).unwrap();
+        fs::create_dir_all(&tgt_tool).unwrap();
+        make_skill(&src_tool, "shared-skill");
+        make_skill(&tgt_tool, "native-skill");
+
+        // 经 hub 层创建 junction（账本写 root/data，不碰真实数据目录）
+        let link = crate::hub::link_skill_to_dir(
+            &root.join("data"),
+            &src_tool.join("shared-skill"),
+            &tgt_tool,
+            "codex",
+            crate::hub::LinkMode::Link,
+        )
+        .unwrap();
+
+        let skills = live(scan_all_skills(&[
+            target(&src_tool, "claude-code", "Claude Code"),
+            target(&tgt_tool, "codex", "Codex CLI"),
+        ]));
+        // claude: shared-skill；codex: native-skill + junction 副本
+        assert_eq!(skills.len(), 3);
+        let linked = skills.iter().find(|s| s.id == "codex|shared-skill").unwrap();
+        assert!(linked.hub_linked, "junction 落点必须被识别");
+        assert!(linked.skill_dir.ends_with("shared-skill"));
+        assert!(
+            linked.source_path.contains("claude"),
+            "canonicalize 穿透 junction 指向出处: {}",
+            linked.source_path
+        );
+        // 同名跨工具 → 出处（扫描顺序在前）为代表
+        let origin = skills.iter().find(|s| s.id == "claude-code|shared-skill").unwrap();
+        assert!(origin.is_representative);
+        assert!(!linked.is_representative);
+        let _ = junction::delete(tgt_tool.join("shared-skill"));
+        let _ = fs::remove_dir_all(&root);
+        assert!(!link.id.is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 主入口
 // ---------------------------------------------------------------------------
 
-pub fn scan_all_skills(scan_paths: &[ScanPathItem]) -> Vec<Skill> {
+pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
     let mut translation_meta = translations::load_all_meta();
     let mut skills: Vec<Skill> = Vec::new();
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut rekeys: Vec<(String, String)> = Vec::new();
 
-    for sp in scan_paths.iter().filter(|sp| sp.enabled) {
-        let base = Path::new(&sp.path);
+    for t in targets {
+        let base = Path::new(&t.path);
         if !base.is_dir() {
             continue;
         }
-        let token = app_owned_token(&sp.label, base);
 
         // 从 depth=1、collection=None 开始递归
         scan_dir_recursive(
             base,
             1,
             base,
-            &sp.label,
+            &t.label,
+            &t.tool_id,
             None,
-            &token,
             &translation_meta,
             &mut skills,
             &mut seen_ids,
@@ -389,6 +604,28 @@ pub fn scan_all_skills(scan_paths: &[ScanPathItem]) -> Vec<Skill> {
         }
         config::debug_log(&format!("id migration rekeys: {:?}", rekeys));
         translation_meta = translations::load_all_meta();
+    }
+
+    // B4 代表选取：同名技能跨工具出现时，按扫描顺序（= tools 注册顺序，
+    // builtin → 注册表 → 自定义 → 导入）首个为代表。非代表副本保留在输出中
+    // （sync_deleted 依赖全量 id，防止误杀其译文），前端按 is_representative 折叠。
+    // 仅跨工具去重：同工具内不同合集的同名目录是不同技能，不折叠。
+    for i in 0..skills.len() {
+        let mut earlier_rep: Option<usize> = None;
+        let mut others: Vec<String> = Vec::new();
+        for j in 0..skills.len() {
+            if j == i || skills[j].folder_name != skills[i].folder_name {
+                continue;
+            }
+            if skills[j].tool_id != skills[i].tool_id {
+                if j < i && earlier_rep.is_none() {
+                    earlier_rep = Some(j);
+                }
+                others.push(skills[j].tool_id.clone());
+            }
+        }
+        skills[i].is_representative = earlier_rep.is_none();
+        skills[i].other_sources = others;
     }
 
     // 加入已翻译但源文件已删除的孤儿记录
@@ -408,6 +645,12 @@ pub fn scan_all_skills(scan_paths: &[ScanPathItem]) -> Vec<Skill> {
                 emoji: None,
                 scan_label: tmeta.scan_label.clone(),
                 source_path: tmeta.source_path.clone(),
+                skill_dir: tmeta.source_path.clone(),
+                tool_id: sid.split('|').next().unwrap_or("").to_string(),
+                is_representative: true,
+                other_sources: vec![],
+                hub_linked: false,
+                hub_link_id: None,
                 has_translation: true,
                 title_zh: tmeta.title_zh.clone(),
                 description_zh: extract_description_zh(sid),

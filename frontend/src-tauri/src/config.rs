@@ -476,10 +476,18 @@ fn short_hash(s: &str) -> String {
     format!("{:x}", h.finish())
 }
 
-/// 扫描派生：enabled 工具 → 实际要扫的目录（app_owned 动态解析；外部工具
-/// 展开候选后取存在者——与 v0.1「存在的配置路径全扫」行为一致）。
-/// 返回 ScanPathItem 视图供 scanner 消费（B4 前 scanner 不改签名）。
-pub fn scan_items_from_tools(tools: &[ToolEntry]) -> Vec<ScanPathItem> {
+/// 扫描目标（B4 起 scanner 的输入）：enabled 工具 → 实际要扫的目录。
+/// app_owned 动态解析；外部工具展开候选后取存在者（与 v0.1「存在的配置
+/// 路径全扫」行为一致）。携带 tool_id 供 scanner 做稳定 rekey（§2.4）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanTarget {
+    pub path: String,
+    /// 工具显示名（扫描结果的 scan_label）
+    pub label: String,
+    pub tool_id: String,
+}
+
+pub fn scan_targets_from_tools(tools: &[ToolEntry]) -> Vec<ScanTarget> {
     let mut out = Vec::new();
     for tool in tools.iter().filter(|t| t.enabled) {
         let dirs: Vec<PathBuf> = if tool.app_owned {
@@ -494,10 +502,10 @@ pub fn scan_items_from_tools(tools: &[ToolEntry]) -> Vec<ScanPathItem> {
                 .collect()
         };
         for d in dirs {
-            out.push(ScanPathItem {
+            out.push(ScanTarget {
                 path: d.to_string_lossy().to_string(),
                 label: tool.name.clone(),
-                enabled: true,
+                tool_id: tool.id.clone(),
             });
         }
     }
@@ -955,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_items_dedup_separator_variants() {
+    fn scan_targets_dedup_separator_variants() {
         let tmp = std::env::temp_dir().join(format!("sk-b1-dedup-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let bs = tmp.to_string_lossy().to_string();
@@ -969,8 +977,9 @@ mod tests {
             linkable: true,
             app_owned: false,
         };
-        let items = scan_items_from_tools(&[tool]);
+        let items = scan_targets_from_tools(&[tool]);
         assert_eq!(items.len(), 1, "同目录两种分隔符形态只扫一次");
+        assert_eq!(items[0].tool_id, "t");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
