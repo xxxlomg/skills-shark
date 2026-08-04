@@ -1,6 +1,6 @@
 # PLAN-06 — SkillsShark v0.2 枢纽化：Git 分发 × 跨 Agent 引用 × 创作套件
 
-> **状态：✅ 已立项（boss 拍板 2026-08-04）· 开发分支：`v0.2.0`（已从 main 切出）· 技术方案：✅ Pal 细化完成（2026-08-04，各模块实现节 §1.6+/§2.4+/§3.4+/§7）**
+> **状态：✅ 已立项（boss 拍板 2026-08-04）· 开发分支：`v0.2.0`（已从 main 切出）· 技术方案：✅ Pal 细化完成（2026-08-04，各模块实现节 §1.6+/§2.4+/§3.4+/§7）· 修订：R2（2026-08-04，按 Paw 全文评审四条意见修订，见 §9 修订记录）**
 > 日期：2026-08-04 · 提出：boss · 整理：Paw（需求/方案）· 架构细化：Pal
 > 前置：PLAN-05（.skillpack 格式与打包管线，P1 已完成）
 > 关系：卡牌化提案（PROPOSAL-v0.2-卡牌化.md）**暂放不废**——卡牌是呈现层，枢纽是地基，地基打好后卡牌随时可回来。v0.2 周期内不做卡牌趣味化。
@@ -409,7 +409,7 @@ pub struct Skill {
 | B2 | hub.rs 链接层 + junction 单测 | Windows junction/POSIX symlink 建删往返；remove_link 对真实目录必须报错（防误删单测） | 1.5d |
 | B3 | links.json 台账 + 断链检测 | 手工删源 → hub_links_status 报 broken → 重建链接恢复 | 1d |
 | B4 | 聚合扫描 + Skill 结构 | 同一技能链接进 2 工具 → 一张卡 + 两枚徽标；译文绑定不丢；代表翻转提示可迁移 | 1.5d |
-| B5 | Hub 页命令接线 + 转副本 | 全模式（link/copy/解除/转副本/集合级）手工走查一遍 | 1.5d |
+| B5 | Hub 页命令接线 + 转副本 | 全模式（link/copy/解除/转副本/集合级）手工走查一遍；导航结构走 §7.6 插槽（视图注册表数据驱动，不硬编码 TabNav——IA 由 Paw 交互稿覆盖） | 1.5d |
 
 ---
 
@@ -439,11 +439,12 @@ pub struct Skill {
 | name ≤ 64 字符 | ❌ | ✅ | ✅ |
 | description 无尖括号 | ✅ | ✅ | ✅ |
 | description ≤ 1024 字符 | ❌ | ✅ | ✅ |
-| frontmatter 字段白名单 {name, description, license, allowed-tools, metadata} | ❌ | ✅ | ✅（白名单恰好是两家的并集，直接用） |
+| frontmatter 字段白名单 | ❌ | ✅ `{name, description, license, allowed-tools, metadata}` | 按生态分治（修订 R2-d）：CL 白名单 = Codex 基线 ∪ {user-invocable, disable-model-invocation}（Claude Code 合法布尔字段，见 §3.5 CL-02）；CX 白名单 = 基线五字段，两字段在 Codex 侧报未知属正确行为，由兼容矩阵分流 |
 
 **Codex 特有扩展（选做支持）**：
-- `agents/openai.yaml` = UI 元数据层（给 Codex 界面渲染用，非 Agent 读取）：
-  - `interface.display_name` / `short_description`（25-64 字符）/ `default_prompt`（必须写成 "Use $skill-name to …" 句式）/ 图标与品牌色（可选，用户没给就不生成）；
+- `agents/openai.yaml` = UI 元数据层（给 Codex 界面渲染用，非 Agent 读取；**字段全部位于 `interface:` 之下**，官方 schema 见 references/openai_yaml.md，修订 R2-a）：
+  - `interface.display_name` / `short_description`（25-64 字符）/ `default_prompt`（必须写成 "Use $skill-name to …" 句式）——三个文案字段为默认产出；
+  - `interface.icon_small` / `icon_large`（assets 相对路径，默认 `./assets/`）/ `brand_color`（hex）——可选，**用户没提供就不生成**（官方原则：可选 interface 字段仅在用户明确提供时才写入）；
   - 字符串加引号、键不加引号；
   - 我们的生成方式：AI 按 SKILL.md 内容产出三个文案字段 → App 按规范写 YAML（格式简单，原生实现，不必调官方 py 脚本）。
 
@@ -459,7 +460,7 @@ pub struct Skill {
 2. 两种生成模式：
    - **模板模式**（无 LLM 也可用）：SKILL.md 骨架 + TODO 占位 + 按需的 scripts/references/assets 空目录（对齐官方 init_skill.py 行为）；
    - **AI 模式**（复用现有 LLM 管线）：主题 + 要点 → AI 产出 frontmatter + 正文初稿，§3.1 的原则全部作为 prompt 硬约束 → 产出后立即过校验器；
-3. 编辑：复用卡牌提案里已锁范围的编辑能力（markdown 预览 + frontmatter 表单化 + YAML round-trip 保留未知字段）；
+3. 编辑：frontmatter 表单化 + YAML round-trip 保留未知字段（规格与验收标准见 §3.14 / C10；原卡牌提案锁定范围，现已收编进模块 C）；
 4. 实时校验面板：error（阻断）/ warning（提醒，如正文超 500 行、含 README.md 等 Codex 禁止文件）+ 兼容矩阵；
 5. 可选生成 `agents/openai.yaml`（Codex 界面增强）。
 
@@ -505,9 +506,9 @@ struct RuleSpec {
 
 | 规则组 | id 段 | 内容 |
 |---|---|---|
-| frontmatter 基础 | FM-01..07 | YAML 可解析；description 存在/非空/≤1024；name 格式 `^[a-z0-9-]+$`（仅 Codex 生态报）；user-invocable/disable-model-invocation 类型检查 |
-| Claude 生态 | CL-01..05 | name 与目录名一致（Warn）；未知字段列表化提示；allowed-tools 字符串形态提示 |
-| Codex 生态 | CX-01..04 | 未知字段按严格/诊断分流；openai.yaml 存在性（Info）；default_prompt 含 `$skill-name`；short_description 25-64 字符 |
+| frontmatter 基础 | FM-01..07 | YAML 可解析；description 存在/非空/≤1024；name 格式 `^[a-z0-9-]+$`（仅 Codex 生态报）；user-invocable/disable-model-invocation 类型检查（必须为布尔——**前提是二者是 CL 白名单合法字段**（§3.1，修订 R2-d），FM 层只做类型检查，绝不报"未知字段"） |
+| Claude 生态 | CL-01..05 | name 与目录名一致（Warn）；白名单 = {name, description, license, allowed-tools, metadata, **user-invocable, disable-model-invocation**}，名单外字段列表化提示（严格模式升 Error）；allowed-tools 字符串形态提示 |
+| Codex 生态 | CX-01..04 | 白名单 = {name, description, license, allowed-tools, metadata}（Codex quick_validate.py 基线）——user-invocable/disable-model-invocation 在此报未知字段是**正确行为**（矩阵分流：Claude pass / Codex warn，修订 R2-d）；未知字段按严格/诊断分流；openai.yaml 存在性（Info）；default_prompt 含 `$skill-name`；short_description 25-64 字符 |
 | 文件层 | FS-01..05 | SKILL.md 存在；体积阈值提示（>500KB Warn）；引用文件存在性（Info）；.py 无 shebang 提示（Info）；目录深度 |
 
 ### 3.6 严格 / 诊断双轨 + 兼容矩阵输出
@@ -578,8 +579,9 @@ create_skill_pack 新增参数 force: bool = false
 |---|---|---|
 | `skill_new` | `(name, location: {Authored} \| {Tool(tool_id)}, topic?) -> CreateResult{path, skill}` | 模板模式：写 SKILL.md 骨架（frontmatter 预填 name/description 占位）+ 空 references/；写完立即跑诊断校验返回报告 |
 | `skill_commit_draft` | `(location, draft: SkillDraft) -> CreateResult` | AI 模式落盘入口（§3.11）；写入前路径归属检查（必须落在已注册 tools 路径或 authored/ 之下，防任意路径写） |
-| `skill_write_file` | `(skill_dir, rel_path, content) -> ()` | 编辑器保存用；rel_path 禁止 `..` 逃逸 + 落点同上的归属检查 |
-| `openai_yaml_generate` | `(skill_dir, fields: {display_name?, short_description?, default_prompt?}) -> WriteResult` | §3.12 原生 YAML 写入 |
+| `skill_write_file` | `(skill_dir, rel_path, content) -> ()` | 编辑器保存用（整文件写）；rel_path 禁止 `..` 逃逸 + 落点同上的归属检查。⚠️ frontmatter 表单编辑**不走这里**，走 `skill_edit_frontmatter`（§3.14，防全量重写丢未知字段） |
+| `skill_edit_frontmatter` | `(skill_dir, edits) -> EditResult` | §3.14 行级外科手术编辑；未知字段/注释字节级保留 |
+| `openai_yaml_generate` | `(skill_dir, fields: {display_name?, short_description?, default_prompt?, icon_small?, icon_large?, brand_color?}) -> WriteResult` | §3.12 原生 YAML 写入；默认只写三个文案字段，icon/brand_color 仅在用户提供时写入 `interface:` 下（修订 R2-a） |
 | `skill_validate` | 复用 §3.8 | 创作页每次保存后实时调用（诊断模式） |
 
 `SkillDraft` 数据结构（AI 生成的交付契约，前端 LLM 产出 → 后端落盘）：
@@ -604,7 +606,7 @@ struct SkillDraft {
 
 ### 3.12 openai.yaml 原生生成（格式约束的硬实现）
 
-不引入通用 YAML 序列化器（会把不该加引号的键也加引号），**手写专用 emitter**：
+不引入通用 YAML 序列化器（会把不该加引号的键也加引号），**手写专用 emitter**。**输出严格对齐官方 references/openai_yaml.md schema（修订 R2-a）：字段全部位于 `interface:` 之下，不存在顶层 `branding:` 键**：
 
 ```rust
 // 输出形态（键不加引号；字符串值一律双引号 + 转义；块标量不用）：
@@ -612,17 +614,21 @@ struct SkillDraft {
 //   display_name: "PDF 处理专家"
 //   short_description: "从 PDF 提取文本与表格"
 //   default_prompt: "Use pdf-toolkit to …"
-// branding:            # 可选
-//   icon: "file-pdf"
-//   brand_color: "#880000"
+//   icon_small: "./assets/icon-small.png"      # 可选，仅用户提供时写入
+//   icon_large: "./assets/icon-large.svg"      # 可选，仅用户提供时写入
+//   brand_color: "#880000"                     # 可选，仅用户提供时写入
 fn emit_openai_yaml(f: &OpenAiFields) -> String;
 ```
 
 硬约束（写前校验，违反即拒写）：
-1. `default_prompt` 必须包含子串 `$skill-name`（§3.1 Codex 原件规则，§3.5 CX-03 同规则复用）；
-2. `short_description` 25-64 字符（不足/超长报 error，UI 给字数计数）；
-3. 字符串值统一 `"` 包裹，内部 `"` `\` `\n` 标准转义；键名与缩进（2 空格）由 emitter 代码固定，用户输入无法破坏结构；
-4. 已存在 openai.yaml → 默认拒绝覆盖，`overwrite=true` 时先备份 `.bak`。
+1. **默认只产出三个文案字段**（display_name / short_description / default_prompt）；icon_small / icon_large / brand_color **仅在用户明确提供时**写入 `interface:` 下（官方原则：可选 interface 字段不得臆造）；
+2. `default_prompt` 必须包含子串 `$skill-name`（§3.1 Codex 原件规则，§3.5 CX-03 同规则复用）；
+3. `short_description` 25-64 字符（不足/超长报 error，UI 给字数计数）；
+4. icon_small / icon_large 值为**相对技能目录的资源路径**（官方默认 `./assets/`），不是图标名字符串；UI 若引导用户选图，落盘前归一为 `./assets/<file>` 并确认资源文件存在（不存在则 Warn，不阻断——文件可能后补）；
+5. 字符串值统一 `"` 包裹，内部 `"` `\` `\n` 标准转义；键名与缩进（2 空格）由 emitter 代码固定，用户输入无法破坏结构；
+6. 已存在 openai.yaml → 默认拒绝覆盖，`overwrite=true` 时先备份 `.bak`。
+
+范围注记：官方 schema 还有 `dependencies`（MCP 工具依赖）与 `policy.allow_implicit_invocation` 两个顶层节，v0.2 生成器**不产出**（ Codex 高级配置，非文案增强），校验侧也不报其缺失。
 
 写入位置：技能目录下 `agents/openai.yaml`（§3.1 约定）。生成时机：创作页「Codex 兼容」开关，或已有技能的详情页手动触发。
 
@@ -634,7 +640,29 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 | C6 | skill_commit_draft + skill_write_file（含路径归属安全） | 路径逃逸用例（../、绝对路径、未注册目录）全部被拒 | 1d |
 | C7 | authoring-api.ts 骨架 + prompt 插槽 | 用占位 prompt 跑通"输入主题→流式生成→落盘→校验报告"全链路 | 1.5d |
 | C8 | openai.yaml emitter + 约束校验 | 格式快照测试（引号/缩进/$skill-name 断言）；覆盖写备份生效 | 1d |
-| C9 | 创作页 UI 接线（表单/编辑/双落点选择） | 手工走查：模板 + AI 两模式 × 两落点 | 1.5d |
+| C9 | 创作页 UI 接线（表单/编辑/双落点选择） | 手工走查：模板 + AI 两模式 × 两落点；导航走 §7.6 插槽（不硬编码 TabNav） | 1.5d |
+| C10 | **结构化编辑：frontmatter 表单化 + YAML round-trip 保留未知字段**（§3.14，修订 R2-b） | **验收硬标准：编辑含未知字段的第三方 SKILL.md，保存后未知字段逐字保留**（fixture 字节级 diff 测试）；创作页与详情页表单编辑共用同一后端命令 | 1.5d |
+
+### 3.14 结构化编辑：frontmatter 表单化 + round-trip 保真（修订 R2-b 新增）
+
+**规格来源**：卡牌提案 §5「不动的实用底」中已锁范围的编辑能力。卡牌暂放后该规格失去落点，现收编进模块 C——否则用户用我们编辑一次第三方 SKILL.md，别家工具写入的元数据（Claude 的 `metadata:`、第三方自定义字段、注释）就丢一次，直接违背枢纽定位。
+
+**后端命令**：
+
+| Command | 签名（简） | 说明 |
+|---|---|---|
+| `skill_edit_frontmatter` | `(skill_dir, edits: Vec<{key, op: set\|delete, value?}>) -> EditResult{new_frontmatter, validation}` | 外科手术式编辑，写后跑诊断校验一并返回；路径归属检查同 skill_write_file |
+
+**round-trip 策略（决定：行级外科手术，不做全量解析重序列化）**：
+
+1. serde_yaml-ng 解析 frontmatter 仅用于**定位**：识别顶层 key 及其行范围（含多行块标量/嵌套子树的完整 span）；
+2. 被修改的 key → 原行范围整段替换为新值；新增 key → 追加到 frontmatter 末尾；删除 key → 移除整段；
+3. **其余字节不动**——未知字段、注释、引号风格、空行原样保留；
+4. 兜底：定位失败（非常规结构，如锚点/别名）→ 拒写并报错，**绝不降级为全量重写**（降级即静默丢数据，比拒写更糟）。
+
+**已知边界**：行级替换保证"未知字段逐字保留"的验收标准，但对*被编辑*字段本身会规范化其 YAML 形态（如加引号）——这是预期行为，不是缺陷。
+
+**前端**：已知字段（name/description/license/allowed-tools/user-invocable/disable-model-invocation 及白名单内其余字段）表单化输入；表单无法表达的字段显示为只读原始 YAML 预览 + 提示"该字段请用文本编辑"（整文件编辑仍走 `skill_write_file`，与表单编辑互斥入口，避免两条写路径互相覆盖）。
 
 ---
 
@@ -669,12 +697,12 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 |---|---|---|---|---|
 | B Hub 引用 | 5（B1-B5，§2.11） | 6.5d | 5-7d | 符合 |
 | C 校验器地基 | 4（C1-C4，§3.8） | 4.5d | 2-3d | 略超——含前端徽章与 pack 集成，差额来自把"打包强制校验"收进本模块 |
-| C 创作套件 | 5（C5-C9，§3.13） | 6d | 4-6d | 上限内 |
+| C 创作套件 | 6（C5-C10，§3.13） | 7.5d | 4-6d | 略超上限——C10 结构化编辑是卡牌提案「实用底」规格的收编（修订 R2-b），属规格缺口回填而非膨胀 |
 | A Git 分发 | 5（A1-A5，§1.12） | 6d | 5-7d | 符合 |
-| 合计（不含联调缓冲） | 19 | 23d | 21-28d | 区间内，留 ~20% 缓冲 |
+| 合计（不含联调缓冲） | 20 | 24.5d | 21-28d | 区间内，缓冲由 ~20% 收窄至 ~13%（C10 收编所致，可接受；若 W5 全链路走查暴露问题再议） |
 
 **执行顺序锁定（boss 拍板）**：B（Hub 引用）→ C 地基（校验器）→ C（创作套件）→ A（Git 分发）。
-补充：C1-C4 与 C5-C9 文件域不同（validate.rs vs authoring.rs），人手富余时可部分并行。
+补充：C1-C4 与 C5-C10 文件域不同（validate.rs vs authoring.rs），人手富余时可部分并行。
 
 ### 5.2 发布节奏（v0.2.0，W1–W5）
 
@@ -683,7 +711,7 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 | W1 | 模块 B 前半：tools 注册表迁移（B1）+ 链接层与台账（B2/B3） |
 | W2 | 模块 B 后半：聚合扫描（B4）+ Hub 页接线（B5）；校验器骨架（C1/C2） |
 | W3 | 校验器收尾（C3/C4）+ 创作套件后端（C5/C6） |
-| W4 | 创作 AI 链路（C7-C9）；Git 分发（A1-A3） |
+| W4 | 创作 AI 链路（C7-C9）+ 结构化编辑（C10，修订 R2-b）；Git 分发（A1-A3） |
 | W5（缓冲） | Git 分发收尾（A4/A5）+ 全链路走查：创作→校验→引用→发布→他人导入 |
 
 **v0.2 验收场景（一句话）**：用户在 App 里创作一个 skill，校验通过，引用进自己的 Claude Code 与 Codex CLI，打包发布到自己的 GitHub 仓库；朋友粘贴仓库 URL，导入、安装、引用进自己的工具——全程无人工运维介入。
@@ -698,7 +726,7 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 | R2 | 用户无系统 git | 明确检测 + 引导，发布功能优雅降级为"导出文件自行上传" |
 | R3 | Claude hooks 调用统计可行性未验证 | P2 先实测事件形态再立项，不提前承诺 |
 | R4 | Cursor 等工具 skills 目录约定变动 | 注册表数据驱动，改 JSON 即修，不硬编码 |
-| R5 | 各生态 frontmatter 规范继续漂移 | 校验器规则表做成配置化数据，随版本更新；白名单以 Codex 版为基线（恰为两家并集） |
+| R5 | 各生态 frontmatter 规范继续漂移 | 校验器规则表做成配置化数据，随版本更新；白名单按生态分治：CX 基线 = 官方 quick_validate.py 五字段，CL = 基线 + user-invocable/disable-model-invocation（修订 R2-d），各家新增字段只需改规则表数据 |
 | R6 | 仓库导入恶意包 | 复用 PLAN-05 zip 防御（entry 数/大小/深度封顶）+ sha256 自验 |
 
 **Pal 细化阶段增量补充（R7–R16）**：
@@ -747,13 +775,13 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 
 `translations/`、`imported/`、`packs/`、`builtin/` 语义不变。
 
-### 7.3 全部新命令汇总（v0.2 新增 18 个 + 改造 2 个）
+### 7.3 全部新命令汇总（v0.2 新增 19 个 + 改造 2 个）
 
 | 模块 | 命令 |
 |---|---|
 | B（8） | `hub_list_tools` `hub_add_tool` `hub_update_tool` `hub_remove_tool` `hub_link_skill` `hub_unlink` `hub_convert_to_copy` `hub_links_status` |
 | C 地基（1） | `skill_validate` |
-| C 创作（4） | `skill_new` `skill_commit_draft` `skill_write_file` `openai_yaml_generate` |
+| C 创作（5） | `skill_new` `skill_commit_draft` `skill_write_file` `skill_edit_frontmatter`（§3.14，修订 R2-b） `openai_yaml_generate` |
 | A（5） | `git_status` `repo_setup` `publish_pack` `repo_browse` `repo_import_commit` |
 | 改造（2） | `scan_skills` 返回聚合结构（§2.7，前端字段级兼容）；`create_skill_pack` 增 `force` 参数（§3.7） |
 
@@ -777,6 +805,14 @@ async 标注：`publish_pack` `repo_browse` `repo_import_commit` 为 async comma
 
 理由：遗留改动已核阅（git diff 确认是完整自洽的 Radix Portal 重写）；混入功能提交会在回滚/审查时互相牵连。
 
+### 7.6 导航结构插槽（修订 R2-c：IA 留白的实现约束）
+
+Hub 页与创作入口的信息架构（新 Tab？顶栏入口？）由 Paw 交互稿覆盖，本文档**不预设**。实现约束（B5/C9 接线时必须遵守）：
+
+- 导航项一律**数据驱动**：视图注册表（id + 标题 + 渲染组件 + 排序权重），不硬编码 Tab 数量与顺序；
+- TabNav/顶栏组件只消费注册表，不感知具体业务视图——交互稿定稿后改注册表数据即接入，**不重写导航组件**；
+- Hub 页与创作页作为普通视图注册，入口位置（Tab / 顶栏按钮 / 详情页内）对视图实现透明。
+
 ---
 
 ## 8. 拍板记录（2026-08-04，boss）
@@ -790,6 +826,21 @@ async 标注：`publish_pack` `repo_browse` `repo_import_commit` 为 async comma
 | B5 | 开发分支 | ✅ `v0.2.0`，已从 main 切出 |
 
 **分工**：Pal 在本文档基础上补充详细技术方案（各模块实现细节、命令清单、数据模型）→ ✅ 已完成（本版本，2026-08-04）；Paw 出创作向导交互稿 + AI 生成 prompt 初稿（插槽见 §3.11）+ 校验文案。
+
+---
+
+## 9. 修订记录
+
+**R2（2026-08-04）——按 Paw 全文评审（797 行全审）修订四条，评审结论「可以开工」**：
+
+| # | 评审意见 | 修订动作 |
+|---|---|---|
+| R2-a | §3.12 openai.yaml emitter 示例偏离官方 schema（虚构顶层 `branding:` 键与 `icon: "file-pdf"` 值） | 已对照官方 references/openai_yaml.md 逐字核实并修正：§3.12 示例字段全部归入 `interface:` 下，icon_small/icon_large 为 assets 相对路径；新增硬约束「默认只产出三个文案字段，可选字段仅在用户明确提供时写入」；同步修正 §3.1、§3.10 `openai_yaml_generate` 签名 |
+| R2-b | 结构化编辑硬规格（frontmatter 表单化 + YAML round-trip 保留未知字段）失去落点 | 新增 C10 里程碑与 §3.14 规格节（含 `skill_edit_frontmatter` 命令、行级外科手术策略、字节级 diff 验收标准）；§3.2/§7.3 交叉引用同步；§5.1/§5.2 排期与总人天更新（23d→24.5d，仍在 21-28d 区间） |
+| R2-c | Hub 页/创作入口 IA 留白，勿硬编码 TabNav | 新增 §7.6 导航结构插槽约束（视图注册表数据驱动）；B5/C9 验收标准加注 |
+| R2-d | §3.5 FM 类型检查与 CL 白名单自相矛盾（user-invocable/disable-model-invocation 是 Claude Code 合法字段） | CL 白名单显式收录两字段（§3.1/§3.5）；CX 白名单维持 Codex 官方五字段基线（报未知字段为正确行为，矩阵分流）；R5 风险条目同步修正 |
+
+另：§7.5 遗留修改处置（Tip.tsx 单独提交）获 Paw 确认同意，按既定节奏执行。依赖实测结论（serde_yaml-ng / junction 真实存在、API 面与选型描述一致）已核阅，维持 §3.4/§2.4 选型不变。
 
 ---
 
