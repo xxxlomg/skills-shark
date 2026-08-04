@@ -2,7 +2,7 @@
 
 > 本地 AI 技能（Agent Skills）管理、翻译与打包桌面工具 —— 让中文用户**一眼看懂、一用就会**。
 
-**当前版本：v0.1.0**（2026-08-04 首发）· Windows x64 NSIS 安装包
+**当前版本：v0.2.0**（开发中）· Windows x64 NSIS 安装包
 
 鲨 = 敏锐、精准、快。SkillsShark 把你散落在各个 AI 工具里的 skills 统一扫进来：
 看懂它（流式翻译成中英对照）、管好它（分类 / 搜索 / 状态追踪）、分享它（打包成 `.skillpack` 在平台内流通）。
@@ -62,7 +62,7 @@ cargo test
 ## 📁 目录结构
 
 ```
-skills-manager/
+skills-shark/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/

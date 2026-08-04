@@ -337,7 +337,7 @@ const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
 
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
     let resp = ureq::get(url)
-        .header("User-Agent", "skills-manager/0.1")
+        .header("User-Agent", "skills-shark/0.2")
         .call()
         .map_err(|e| format!("下载失败: {}", e))?;
     if resp.status() != 200 {

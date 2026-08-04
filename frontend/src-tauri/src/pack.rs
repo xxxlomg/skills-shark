@@ -18,7 +18,7 @@ pub const FORMAT_VERSION: u32 = 1;
 const MAX_SKILLS_PER_PACK: usize = 40;
 /// 静态总结里单条 description 截断长度
 const DESC_TRUNC: usize = 300;
-const GENERATOR: &str = "SkillsShark 0.1.0";
+const GENERATOR: &str = "SkillsShark 0.2.0";
 
 // ---------------------------------------------------------------------------
 // Manifest（pack.json schema v1）
@@ -681,7 +681,7 @@ mod tests {
     }
 
     /// 只读端到端核对：真实 config.json 的 tools → 扫描目标含 imported →
-    /// 已安装 pack 技能（internal-comms）能进扫描结果。无数据机器自动跳过。
+    /// 已安装 pack 技能（internal-comms）能进扫描结果。无数据 / v0.1 旧格式配置自动跳过。
     #[test]
     fn real_config_scans_installed_pack_skills() {
         let Some(up) = std::env::var_os("USERPROFILE") else {
@@ -692,8 +692,12 @@ mod tests {
             return;
         };
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        // v0.1 旧格式配置（仅 scan_paths 无 tools）= 尚未运行 v0.2 迁移，跳过
+        let Some(tools_val) = v.get("tools") else {
+            return;
+        };
         let tools: Vec<crate::config::ToolEntry> =
-            serde_json::from_value(v["tools"].clone()).unwrap();
+            serde_json::from_value(tools_val.clone()).unwrap();
         // config 层：imported 工具在、启用、app_owned（生产环境由此派生扫描目标）
         assert!(
             tools

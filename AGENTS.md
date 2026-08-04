@@ -49,7 +49,7 @@
 ### 2.3 目录结构
 
 ```
-skills-manager/
+skills-shark/
 ├── frontend/                    # React 前端
 │   ├── src/
 │   │   ├── components/

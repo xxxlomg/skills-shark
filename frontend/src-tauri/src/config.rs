@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::Manager;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// 追加写调试日志到 _data/debug.log（release 也能查）
@@ -43,7 +43,7 @@ pub fn debug_log(msg: &str) {
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// 项目根（frontend/src-tauri 上两级 = skills-manager/）
+/// 项目根（frontend/src-tauri 上两级 = skills-shark/）
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -61,10 +61,10 @@ fn legacy_data_dir() -> PathBuf {
 const DATA_DIR_NAME: &str = "Skills Shark";
 
 /// 初始化数据/资源目录，lib.rs setup 调一次。
-/// 解析优先级：SKILLS_MANAGER_DATA env（portable 口子）> Roaming\Skills Shark
+/// 解析优先级：SKILLS_SHARK_DATA env（portable 口子）> Roaming\Skills Shark
 /// （D1）> 旧版兜底。dev/prod 同机同目录（D5 不隔离）。
 pub fn init_data_dir(app: &tauri::AppHandle) {
-    let dir = match std::env::var("SKILLS_MANAGER_DATA") {
+    let dir = match std::env::var("SKILLS_SHARK_DATA") {
         Ok(v) if !v.trim().is_empty() => PathBuf::from(v),
         _ => resolve_data_dir(app),
     };
@@ -73,7 +73,6 @@ pub fn init_data_dir(app: &tauri::AppHandle) {
         let _ = RESOURCE_DIR.set(rd);
     }
     migrate_legacy_data(&dir);
-    merge_orphan_data(&dir);
     debug_log(&format!("data_dir initialized: {}", dir.display()));
 }
 
@@ -100,63 +99,6 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
             }
         }
         Err(_) => legacy_data_dir(),
-    }
-}
-
-/// 旧版 bug 的孤儿目录（Windows）：<home>\AppData\Skills Shark（缺 Roaming 层）。
-/// 非 Windows 平台该路径天然不存在，is_dir 判假即跳过。
-fn orphan_data_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join("AppData").join(DATA_DIR_NAME))
-}
-
-/// 启动时把孤儿目录的 translations/packs/imported 合并回正确目录
-/// （只补缺失、不覆盖已有；孤儿目录原样保留作备份）。
-fn merge_orphan_data(target: &PathBuf) {
-    let Some(orphan) = orphan_data_dir() else {
-        return;
-    };
-    merge_orphan_from(target, &orphan);
-}
-
-fn merge_orphan_from(target: &Path, orphan: &Path) {
-    if orphan == target || !orphan.is_dir() {
-        return;
-    }
-    let mut copied: Vec<String> = Vec::new();
-    // translations：逐文件补缺
-    if let Ok(entries) = fs::read_dir(orphan.join("translations")) {
-        let dst_root = target.join("translations");
-        for e in entries.filter_map(|e| e.ok()) {
-            let src = e.path();
-            let dst = dst_root.join(e.file_name());
-            if src.is_file() && !dst.exists() {
-                let _ = fs::create_dir_all(&dst_root);
-                if fs::copy(&src, &dst).is_ok() {
-                    copied.push(format!("translations/{}", e.file_name().to_string_lossy()));
-                }
-            }
-        }
-    }
-    // packs/<id>、imported/<stem>：整目录补缺
-    for kind in ["packs", "imported"] {
-        let Ok(entries) = fs::read_dir(orphan.join(kind)) else {
-            continue;
-        };
-        for e in entries.filter_map(|e| e.ok()) {
-            let src = e.path();
-            let dst = target.join(kind).join(e.file_name());
-            if src.is_dir() && !dst.exists() && crate::import::copy_dir_recursive(&src, &dst).is_ok()
-            {
-                copied.push(format!("{}/{}", kind, e.file_name().to_string_lossy()));
-            }
-        }
-    }
-    if !copied.is_empty() {
-        debug_log(&format!(
-            "merged orphan data from {}: {}",
-            orphan.display(),
-            copied.join(", ")
-        ));
     }
 }
 
@@ -901,51 +843,6 @@ mod tests {
         assert_eq!(expand_path("$SK_TEST_HOME").unwrap(), PathBuf::from(r"C:\fake-codex"));
         std::env::remove_var("SK_TEST_HOME");
         assert!(expand_path("$SK_TEST_HOME/skills").is_none()); // 未设置 → 候选失效
-    }
-
-    // ---- 孤儿目录合并 ----
-
-    #[test]
-    fn merge_orphan_fills_missing_only() {
-        let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
-        let orphan = tmp.path().join("orphan");
-        // target 已有：translations/a.md、packs/p1
-        fs::create_dir_all(target.join("translations")).unwrap();
-        fs::write(target.join("translations/a.md"), "old-a").unwrap();
-        fs::create_dir_all(target.join("packs/p1")).unwrap();
-        fs::write(target.join("packs/p1/pack.json"), "{}").unwrap();
-        // orphan 有：translations/a.md(不同内容)、translations/b.md、packs/p2、imported/s1
-        fs::create_dir_all(orphan.join("translations")).unwrap();
-        fs::write(orphan.join("translations/a.md"), "new-a").unwrap();
-        fs::write(orphan.join("translations/b.md"), "b").unwrap();
-        fs::create_dir_all(orphan.join("packs/p2")).unwrap();
-        fs::write(orphan.join("packs/p2/pack.json"), "{\"id\":\"p2\"}").unwrap();
-        fs::create_dir_all(orphan.join("imported/s1")).unwrap();
-        fs::write(orphan.join("imported/s1/SKILL.md"), "s1").unwrap();
-
-        merge_orphan_from(&target, &orphan);
-
-        // 已有不覆盖
-        assert_eq!(
-            fs::read_to_string(target.join("translations/a.md")).unwrap(),
-            "old-a"
-        );
-        // 缺失补齐
-        assert!(target.join("translations/b.md").is_file());
-        assert!(target.join("packs/p2/pack.json").is_file());
-        assert!(target.join("imported/s1/SKILL.md").is_file());
-        // 孤儿原样保留
-        assert!(orphan.join("translations/a.md").is_file());
-    }
-
-    #[test]
-    fn merge_orphan_skips_when_same_or_missing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let a = tmp.path().join("same");
-        fs::create_dir_all(&a).unwrap();
-        merge_orphan_from(&a, &a); // 同路径：no-op 不 panic
-        merge_orphan_from(&a, &tmp.path().join("nope")); // 不存在：no-op
     }
 
     #[test]
