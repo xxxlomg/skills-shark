@@ -57,6 +57,7 @@ pub fn run() {
             authoring::skill_write_file,
             authoring::skill_commit_draft,
             authoring::openai_yaml_generate,
+            authoring::claude_md_generate,
             authoring::skill_edit_frontmatter,
             authoring::skill_rename,
             commands::git_status,

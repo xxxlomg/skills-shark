@@ -960,6 +960,20 @@ export function openaiYamlGenerate(
   return invoke("openai_yaml_generate", { skillDir, fields, overwrite });
 }
 
+/** 转 Claude 兼容：从 agents/openai.yaml 派生 SKILL.md（仅缺失时写，已存在 → created=false）。 */
+export function claudeMdGenerate(
+  skillDir: string
+): Promise<{ created: boolean; path: string; reason?: string }> {
+  if (isMockMode()) {
+    return Promise.resolve({
+      created: false,
+      path: `${skillDir}/SKILL.md`,
+      reason: "SKILL.md 已存在，已是 Claude 兼容（mock）",
+    });
+  }
+  return invoke("claude_md_generate", { skillDir });
+}
+
 export type ImportSource =
   | { kind: "zip"; path: string }
   | { kind: "url"; url: string; token: string; preload: ImportPreview };

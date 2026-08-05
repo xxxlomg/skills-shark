@@ -341,6 +341,71 @@ pub fn openai_yaml_generate(
 }
 
 // ---------------------------------------------------------------------------
+// C8 反向：转 Claude 兼容——从 agents/openai.yaml 派生 SKILL.md。
+// 仅当 SKILL.md 缺失时写入（已存在 → created=false，绝不覆盖用户正文）。
+// ---------------------------------------------------------------------------
+
+/// 从 openai.yaml 派生 SKILL.md 核心（roots 参数化）。
+pub(crate) fn generate_claude_md_checked(
+    skill_dir: &Path,
+    roots: &[PathBuf],
+) -> Result<serde_json::Value, String> {
+    assert_path_owned_with_roots(skill_dir, roots)?;
+    let skill_md = skill_dir.join("SKILL.md");
+    if skill_md.exists() {
+        return Ok(serde_json::json!({
+            "created": false,
+            "path": skill_md.to_string_lossy(),
+            "reason": "SKILL.md 已存在，已是 Claude 兼容"
+        }));
+    }
+    let yaml_path = skill_dir.join("agents").join("openai.yaml");
+    if !yaml_path.exists() {
+        return Err("未找到 agents/openai.yaml，无法转为 Claude 兼容".to_string());
+    }
+    let raw =
+        std::fs::read_to_string(&yaml_path).map_err(|e| format!("读取 openai.yaml 失败：{e}"))?;
+    let v: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&raw).map_err(|e| format!("openai.yaml 解析失败：{e}"))?;
+    let iface = v.get("interface");
+    let get = |k: &str| {
+        iface
+            .and_then(|i| i.get(k))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let display = get("display_name");
+    let short = get("short_description");
+    let prompt = get("default_prompt");
+    if short.is_empty() && prompt.is_empty() {
+        return Err("openai.yaml 缺 short_description / default_prompt，无法派生 SKILL.md"
+            .to_string());
+    }
+    let name = skill_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "skill".to_string());
+    let desc = if short.is_empty() { prompt.clone() } else { short };
+    let title = if display.is_empty() { name.clone() } else { display };
+    let body = if prompt.is_empty() { desc.clone() } else { prompt };
+    let mut md = format!("---\nname: {name}\ndescription: {desc}\n---\n\n# {title}\n\n{body}\n");
+    if !md.ends_with('\n') {
+        md.push('\n');
+    }
+    std::fs::write(&skill_md, md).map_err(|e| format!("写入 SKILL.md 失败：{e}"))?;
+    Ok(serde_json::json!({
+        "created": true,
+        "path": skill_md.to_string_lossy()
+    }))
+}
+
+#[tauri::command]
+pub fn claude_md_generate(skill_dir: String) -> Result<serde_json::Value, String> {
+    generate_claude_md_checked(Path::new(&skill_dir), &owned_roots())
+}
+
+// ---------------------------------------------------------------------------
 // C6 单测：路径逃逸全拒（验收硬标准）
 // ---------------------------------------------------------------------------
 #[cfg(test)]
@@ -813,6 +878,71 @@ mod rename_tests {
         assert!(dir.exists());
         assert!(rename_skill_core(&dir, "free-name", &root, &["C:\\other\\skill".into()])
             .is_ok());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C8 反向单测：openai.yaml → SKILL.md（UI 反馈 2026-08-05 菜单转换）
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod c8_reverse_tests {
+    use super::*;
+
+    fn roots_with(tmp: &Path) -> Vec<PathBuf> {
+        vec![tmp.to_path_buf()]
+    }
+
+    fn write_yaml(skill: &Path) {
+        std::fs::create_dir_all(skill.join("agents")).unwrap();
+        let f = OpenaiFields {
+            display_name: "My Skill".into(),
+            short_description: "A UI blurb of proper length here".into(),
+            default_prompt: "Use $skill-name to do the thing".into(),
+            icon_small: None,
+            icon_large: None,
+            brand_color: None,
+        };
+        std::fs::write(skill.join("agents").join("openai.yaml"), emit_openai_yaml(&f)).unwrap();
+    }
+
+    #[test]
+    fn derives_skill_md_from_openai_yaml() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("codex-only");
+        write_yaml(&skill);
+        let res = generate_claude_md_checked(&skill, &roots_with(tmp.path())).unwrap();
+        assert_eq!(res["created"], true);
+        let md = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
+        assert!(md.contains("name: codex-only"));
+        assert!(md.contains("description: A UI blurb of proper length here"));
+        assert!(md.contains("# My Skill"));
+        assert!(md.contains("Use $skill-name to do the thing"));
+    }
+
+    #[test]
+    fn refuses_when_skill_md_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("both");
+        write_yaml(&skill);
+        std::fs::write(skill.join("SKILL.md"), "---\nname: both\ndescription: x y z\n---\norig\n").unwrap();
+        let res = generate_claude_md_checked(&skill, &roots_with(tmp.path())).unwrap();
+        assert_eq!(res["created"], false);
+        let md = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
+        assert!(md.contains("orig"), "已有正文绝不被覆盖");
+    }
+
+    #[test]
+    fn errs_when_yaml_missing_or_outside_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = tmp.path().join("no-yaml");
+        std::fs::create_dir_all(&skill).unwrap();
+        assert!(generate_claude_md_checked(&skill, &roots_with(tmp.path())).is_err());
+        // 路径逃逸拒
+        let outside = tempfile::tempdir().unwrap();
+        let evil = outside.path().join("evil");
+        std::fs::create_dir_all(&evil).unwrap();
+        let err = generate_claude_md_checked(&evil, &roots_with(tmp.path())).unwrap_err();
+        assert!(err.starts_with("PATH_ESCAPE"), "{err}");
     }
 }
 

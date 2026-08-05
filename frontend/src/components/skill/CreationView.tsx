@@ -1,5 +1,12 @@
 import { useMemo, useState, type CSSProperties } from "react";
-import { PenLine, Pencil, Sparkles } from "lucide-react";
+import {
+  EllipsisVertical,
+  Package,
+  PenLine,
+  Pencil,
+  ScrollText,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,26 +17,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SectionHead } from "@/components/common/SectionHead";
-import { Tip } from "@/components/common/Tip";
 import { LayoutToggle } from "./LayoutToggle";
 import { NewSkillDialog } from "./NewSkillDialog";
 import { CreationEditDialog } from "./CreationEditDialog";
-import { skillRename, type Skill } from "@/lib/api";
+import {
+  skillRename,
+  openaiYamlGenerate,
+  claudeMdGenerate,
+  type Skill,
+} from "@/lib/api";
 import type { LayoutMode } from "@/hooks/useSkills";
 
 /**
- * C9 创作页（UI 反馈 2026-08-05 条目 4 重构）：
- * - 与其他主页同构：SectionHead + 卡片网格（ghost 新建卡独占一行）；
- * - 卡片点击 → 居中 CreationEditDialog（正文/Codex tab + Markdown 预览）；
- * - 卡片右上角编辑钮 → 重命名（C10 skill_edit_frontmatter）；
- * - 无「保存 frontmatter」常驻按钮。
+ * C9 创作页（UI 反馈 2026-08-05 第二轮）：
+ * - 卡片右上角菜单钮：编辑 / 修改名称 / 转 Codex 兼容 / 转 Claude 兼容；
+ * - 卡片点击 → 居中 CreationEditDialog（纯正文编辑，Codex 入口已移入菜单）；
+ * - 新建入口仅「新建」按钮（ghost 卡已删）。
  */
 interface CreationViewProps {
   skills: Skill[];
   refresh: () => void;
   layout: LayoutMode;
   onLayoutChange: (m: LayoutMode) => void;
+}
+
+/** 一键转换派生 short_description（25–64 字符硬约束自动满足）。 */
+function deriveShortDesc(name: string, desc: string): string {
+  let s = desc.trim() || `A skill named ${name}; see body for trigger scenarios.`;
+  if (s.length > 64) s = s.slice(0, 64);
+  const pad = ` Use when the task matches ${name}.`;
+  while (s.length < 25) s += pad.slice(0, 25 - s.length);
+  return s;
 }
 
 export function CreationView({
@@ -47,6 +73,8 @@ export function CreationView({
   const [renaming, setRenaming] = useState<Skill | null>(null);
   const [newName, setNewName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+  const [confirmCodex, setConfirmCodex] = useState<Skill | null>(null);
+  const [converting, setConverting] = useState("");
 
   let idx = 0;
 
@@ -67,6 +95,58 @@ export function CreationView({
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setRenameBusy(false);
+    }
+  };
+
+  /** 转 Codex 兼容：默认拒覆盖，EXISTS → 弹确认（覆盖自动备份 .bak）。 */
+  const convertCodex = async (s: Skill, overwrite: boolean) => {
+    setConverting(`codex:${s.id}`);
+    try {
+      const res = await openaiYamlGenerate(
+        s.skill_dir,
+        {
+          display_name: s.name,
+          short_description: deriveShortDesc(s.name, s.description),
+          default_prompt: `Use $skill-name to ${
+            s.description.trim() || `assist with ${s.name} tasks`
+          }`,
+        },
+        overwrite
+      );
+      toast.success(
+        overwrite
+          ? `openai.yaml 已覆盖生成（旧文件备份 .bak）：${res.path}`
+          : `openai.yaml 已生成：${res.path}`
+      );
+      setConfirmCodex(null);
+      refresh();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      if (raw === "EXISTS" && !overwrite) {
+        setConfirmCodex(s);
+      } else {
+        toast.error(raw);
+      }
+    } finally {
+      setConverting("");
+    }
+  };
+
+  /** 转 Claude 兼容：SKILL.md 缺失才写；已存在 → 提示已是兼容。 */
+  const convertClaude = async (s: Skill) => {
+    setConverting(`claude:${s.id}`);
+    try {
+      const res = await claudeMdGenerate(s.skill_dir);
+      if (res.created) {
+        toast.success(`SKILL.md 已派生：${res.path}`);
+        refresh();
+      } else {
+        toast.info(res.reason ?? "已是 Claude 兼容");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConverting("");
     }
   };
 
@@ -91,8 +171,11 @@ export function CreationView({
               skill={s}
               index={idx++}
               layout="grid"
+              busy={converting}
               onClick={() => setEditing(s)}
               onRename={() => openRename(s)}
+              onConvertCodex={() => convertCodex(s, false)}
+              onConvertClaude={() => convertClaude(s)}
             />
           ))}
         </div>
@@ -104,8 +187,11 @@ export function CreationView({
               skill={s}
               index={idx++}
               layout="list"
+              busy={converting}
               onClick={() => setEditing(s)}
               onRename={() => openRename(s)}
+              onConvertCodex={() => convertCodex(s, false)}
+              onConvertClaude={() => convertClaude(s)}
             />
           ))}
         </div>
@@ -134,7 +220,7 @@ export function CreationView({
         />
       )}
 
-      {/* 重命名小弹窗（条目 4：外层卡片编辑钮） */}
+      {/* 重命名小弹窗（菜单项入口） */}
       <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
         <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
           <DialogHeader>
@@ -167,25 +253,94 @@ export function CreationView({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 覆盖 openai.yaml 确认 */}
+      <Dialog open={!!confirmCodex} onOpenChange={(o) => !o && setConfirmCodex(null)}>
+        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="h-4 w-4 text-primary" />
+              openai.yaml 已存在
+            </DialogTitle>
+          </DialogHeader>
+          <p className="p-1 text-xs leading-relaxed text-muted-foreground">
+            覆盖生成将把旧文件备份为 openai.yaml.bak，是否继续？
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmCodex(null)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              disabled={converting !== ""}
+              onClick={() => confirmCodex && convertCodex(confirmCodex, true)}
+            >
+              覆盖并备份
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-/** 创作卡片：与 FolderCard 同形的玻璃卡；右上角编辑钮重命名。 */
+/** 创作卡片：右上角菜单钮（编辑/改名/双兼容转换）。 */
 function AuthoredCard({
   skill,
   index,
   layout,
+  busy,
   onClick,
   onRename,
+  onConvertCodex,
+  onConvertClaude,
 }: {
   skill: Skill;
   index: number;
   layout: "grid" | "list";
+  busy: string;
   onClick: () => void;
   onRename: () => void;
+  onConvertCodex: () => void;
+  onConvertClaude: () => void;
 }) {
   const wrapStyle = { "--i": index } as CSSProperties;
+  const isBusy =
+    busy === `codex:${skill.id}` || busy === `claude:${skill.id}`;
+
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="技能操作菜单"
+          className="relative z-[1] grid h-7 w-7 place-items-center rounded-md border border-stroke bg-glass-2 text-text-secondary hover:text-text-primary"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <EllipsisVertical className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onSelect={onClick}>
+          <PenLine className="h-3.5 w-3.5" />
+          编辑
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onRename}>
+          <Pencil className="h-3.5 w-3.5" />
+          修改 skills 名称
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={isBusy} onSelect={onConvertCodex}>
+          <Package className="h-3.5 w-3.5" />
+          转为 Codex 兼容
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={isBusy} onSelect={onConvertClaude}>
+          <ScrollText className="h-3.5 w-3.5" />
+          转为 Claude 兼容
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   if (layout === "list") {
     return (
@@ -212,18 +367,7 @@ function AuthoredCard({
             </h3>
             <p className="truncate text-[11px] text-text-tertiary">{skill.description}</p>
           </div>
-          <Tip label="重命名">
-            <button
-              type="button"
-              className="relative z-[1] grid h-7 w-7 place-items-center rounded-md border border-stroke bg-glass-2 text-text-secondary hover:text-text-primary"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRename();
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </Tip>
+          {menu}
         </div>
       </div>
     );
@@ -247,18 +391,7 @@ function AuthoredCard({
           <span className="grid h-[42px] w-[42px] place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
             <PenLine className="h-5 w-5" />
           </span>
-          <Tip label="重命名">
-            <button
-              type="button"
-              className="grid h-7 w-7 place-items-center rounded-md border border-stroke bg-glass-2 text-text-secondary hover:text-text-primary"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRename();
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </Tip>
+          {menu}
         </div>
         <h3 className="relative z-[1] mt-3 truncate font-display text-[15.5px] font-semibold text-text-primary">
           {skill.name}
