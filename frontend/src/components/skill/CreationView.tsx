@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   EllipsisVertical,
   Package,
@@ -26,8 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SectionHead } from "@/components/common/SectionHead";
 import { LayoutToggle } from "./LayoutToggle";
-import { NewSkillDialog } from "./NewSkillDialog";
-import { CreationEditDialog } from "./CreationEditDialog";
+import { AuthoringWorkbench } from "./AuthoringWorkbench";
 import {
   skillRename,
   openaiYamlGenerate,
@@ -37,16 +36,19 @@ import {
 import type { LayoutMode } from "@/hooks/useSkills";
 
 /**
- * C9 创作页（UI 反馈 2026-08-05 第二轮）：
- * - 卡片右上角菜单钮：编辑 / 修改名称 / 转 Codex 兼容 / 转 Claude 兼容；
- * - 卡片点击 → 居中 CreationEditDialog（纯正文编辑，Codex 入口已移入菜单）；
- * - 新建入口仅「新建」按钮（ghost 卡已删）。
+ * C9 创作页（PLAN-07 W1）：列表态 ↔ 工作台态内部切换。
+ * - 卡片点击 / 新建 → 全页 AuthoringWorkbench（退役 CreationEditDialog）；
+ * - 卡片菜单：改名 / 转 Codex / 转 Claude（保留现状，不进工作台）；
+ * - HomeView 新建技能 → App 发 newSignal → 进空工作台。
  */
 interface CreationViewProps {
   skills: Skill[];
   refresh: () => void;
   layout: LayoutMode;
   onLayoutChange: (m: LayoutMode) => void;
+  newSignal: number;
+  onNewSignalConsumed: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }
 
 /** 一键转换派生 short_description（25–64 字符硬约束自动满足）。 */
@@ -63,18 +65,28 @@ export function CreationView({
   refresh,
   layout,
   onLayoutChange,
+  newSignal,
+  onNewSignalConsumed,
+  onDirtyChange,
 }: CreationViewProps) {
   const authored = useMemo(
     () => skills.filter((s) => s.tool_id === "authored"),
     [skills]
   );
-  const [newOpen, setNewOpen] = useState(false);
-  const [editing, setEditing] = useState<Skill | null>(null);
+  const [wb, setWb] = useState<{ skill: Skill | null } | null>(null);
   const [renaming, setRenaming] = useState<Skill | null>(null);
   const [newName, setNewName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [confirmCodex, setConfirmCodex] = useState<Skill | null>(null);
   const [converting, setConverting] = useState("");
+
+  // HomeView 新建技能信号：消费后归零（防 tab 重挂误弹）
+  useEffect(() => {
+    if (newSignal > 0) {
+      setWb({ skill: null });
+      onNewSignalConsumed();
+    }
+  }, [newSignal, onNewSignalConsumed]);
 
   let idx = 0;
 
@@ -150,13 +162,30 @@ export function CreationView({
     }
   };
 
+  // 工作台态：全页渲染
+  if (wb) {
+    return (
+      <AuthoringWorkbench
+        key={wb.skill?.id ?? "new"}
+        skill={wb.skill}
+        refresh={refresh}
+        onExit={() => {
+          setWb(null);
+          onDirtyChange(false);
+          refresh();
+        }}
+        onDirtyChange={onDirtyChange}
+      />
+    );
+  }
+
   return (
     <div className="relative py-6">
       <SectionHead
         title="创作"
         subtitle={`${authored.length} 个创作技能 · 草稿期建议留在 authored`}
       >
-        <button type="button" className="mbtn primary" onClick={() => setNewOpen(true)}>
+        <button type="button" className="mbtn primary" onClick={() => setWb({ skill: null })}>
           <Sparkles className="h-3.5 w-3.5" />
           新建
         </button>
@@ -172,7 +201,7 @@ export function CreationView({
               index={idx++}
               layout="grid"
               busy={converting}
-              onClick={() => setEditing(s)}
+              onClick={() => setWb({ skill: s })}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
@@ -188,7 +217,7 @@ export function CreationView({
               index={idx++}
               layout="list"
               busy={converting}
-              onClick={() => setEditing(s)}
+              onClick={() => setWb({ skill: s })}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
@@ -199,25 +228,8 @@ export function CreationView({
 
       {authored.length === 0 && (
         <p className="mt-6 text-center text-xs text-text-tertiary">
-          还没有创作技能——点「新建」用模板或 AI 起草
+          还没有创作技能——点「新建」进入创作工作台
         </p>
-      )}
-
-      {newOpen && (
-        <NewSkillDialog
-          open={newOpen}
-          onClose={() => setNewOpen(false)}
-          onCreated={refresh}
-        />
-      )}
-
-      {editing && (
-        <CreationEditDialog
-          skill={editing}
-          open={!!editing}
-          onClose={() => setEditing(null)}
-          onSaved={refresh}
-        />
       )}
 
       {/* 重命名小弹窗（菜单项入口） */}
@@ -284,7 +296,7 @@ export function CreationView({
   );
 }
 
-/** 创作卡片：右上角菜单钮（编辑/改名/双兼容转换）。 */
+/** 创作卡片：右上角菜单钮（改名/双兼容转换）；卡片点击进工作台。 */
 function AuthoredCard({
   skill,
   index,

@@ -67,6 +67,7 @@ export interface MaskedConfig {
 
 /** 扫描所有 enabled 路径，返回 skill 列表 */
 export function scanSkills(): Promise<Skill[]> {
+  if (isMockMode()) return Promise.resolve([...MOCK_SKILLS]);
   return invoke<Skill[]>("scan_skills");
 }
 

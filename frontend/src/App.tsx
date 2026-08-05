@@ -15,7 +15,6 @@ import { HomeView } from "@/components/skill/HomeView";
 import { CategoryView } from "@/components/skill/CategoryView";
 import { PacksView } from "@/components/skill/PacksView";
 import { PackCreateDialog } from "@/components/skill/PackCreateDialog";
-import { NewSkillDialog } from "@/components/skill/NewSkillDialog";
 import { CreationView } from "@/components/skill/CreationView";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type { PackAction } from "@/components/skill/PackCard";
@@ -113,8 +112,11 @@ function App() {
   // Skill Packs（PLAN-05 P1：真实数据）
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [packDialogOpen, setPackDialogOpen] = useState(false);
-  // C5：新建技能（模板模式）
-  const [newSkillOpen, setNewSkillOpen] = useState(false);
+  // PLAN-07 W1：HomeView 新建技能 → 切创作 tab + 进空工作台（信号消费后归零）
+  const [newSignal, setNewSignal] = useState(0);
+  // PLAN-07 W1：工作台 dirty 上报 → tab 切换守卫
+  const [wbDirty, setWbDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<ViewId | null>(null);
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PackInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -185,6 +187,24 @@ function App() {
   const handleGitImport = useCallback(() => {
     setUrlDialogOpen(true);
   }, []);
+
+  // PLAN-07 W1：新建技能统一进创作工作台（退役 NewSkillDialog）
+  const handleNewSkill = useCallback(() => {
+    setTab("create");
+    setNewSignal((s) => s + 1);
+  }, []);
+
+  // PLAN-07 W1：tab 切换守卫——工作台 dirty 时弹确认（草稿已自动兜底）
+  const handleTabChange = useCallback(
+    (next: ViewId) => {
+      if (next !== tab && tab === "create" && wbDirty) {
+        setPendingTab(next);
+        return;
+      }
+      setTab(next);
+    },
+    [tab, wbDirty]
+  );
 
   // 拖拽 zip / skillpack 到窗口任意位置 → 打开导入对话框
   useEffect(() => {
@@ -419,7 +439,7 @@ function App() {
             packCount={packs.length}
           />
 
-          <TabNav activeTab={tab} onChange={setTab} />
+          <TabNav activeTab={tab} onChange={handleTabChange} />
 
           {/* 视图分发：按视图注册表 id 路由（PLAN-06 §7.6）。
               新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。
@@ -451,6 +471,9 @@ function App() {
               refresh={refresh}
               layout={layout}
               onLayoutChange={handleLayoutChange}
+              newSignal={newSignal}
+              onNewSignalConsumed={() => setNewSignal(0)}
+              onDirtyChange={setWbDirty}
             />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
@@ -475,7 +498,7 @@ function App() {
               onSkillClick={handleSkillClick}
               onGitImport={handleGitImport}
               onZipImport={handleZipImport}
-              onNewSkill={() => setNewSkillOpen(true)}
+              onNewSkill={handleNewSkill}
             />
           ) : currentGroup ? (
             <CategoryView
@@ -554,15 +577,19 @@ function App() {
         />
       )}
 
-      {newSkillOpen && (
-        <NewSkillDialog
-          open={newSkillOpen}
-          onClose={() => setNewSkillOpen(false)}
-          onCreated={() => {
-            refresh();
-          }}
-        />
-      )}
+      {/* PLAN-07 W1：dirty 时切离创作 tab 的确认 */}
+      <ConfirmDialog
+        open={pendingTab !== null}
+        onOpenChange={(o) => !o && setPendingTab(null)}
+        title="有未保存改动"
+        description="创作工作台有未保存改动——草稿已自动兜底，下次进入可恢复。仍要切换？"
+        confirmText="切换"
+        onConfirm={() => {
+          if (pendingTab) setTab(pendingTab);
+          setPendingTab(null);
+          setWbDirty(false);
+        }}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}
