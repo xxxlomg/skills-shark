@@ -11,7 +11,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SectionHead } from "@/components/common/SectionHead";
-import { GhostCard } from "@/components/common/GhostCard";
 import { Tip } from "@/components/common/Tip";
 import { LayoutToggle } from "./LayoutToggle";
 import { NewSkillDialog } from "./NewSkillDialog";
@@ -86,16 +85,6 @@ export function CreationView({
 
       {layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {/* 新建入口独占一行，与主页 ghost 卡布局一致 */}
-          <div className="col-span-full">
-            <GhostCard
-              icon={<PenLine className="h-[22px] w-[22px]" />}
-              title="新建创作"
-              subtitle="模板或 AI 起草，落点 authored"
-              index={idx++}
-              onClick={() => setNewOpen(true)}
-            />
-          </div>
           {authored.map((s) => (
             <AuthoredCard
               key={s.id}
@@ -109,14 +98,6 @@ export function CreationView({
         </div>
       ) : (
         <div className="flex flex-col gap-[10px]">
-          <GhostCard
-            layout="list"
-            icon={<PenLine className="h-5 w-5" />}
-            title="新建创作"
-            subtitle="模板或 AI 起草，落点 authored"
-            index={idx++}
-            onClick={() => setNewOpen(true)}
-          />
           {authored.map((s) => (
             <AuthoredCard
               key={s.id}
@@ -132,7 +113,7 @@ export function CreationView({
 
       {authored.length === 0 && (
         <p className="mt-6 text-center text-xs text-text-tertiary">
-          还没有创作技能——点「新建创作」用模板或 AI 起草
+          还没有创作技能——点「新建」用模板或 AI 起草
         </p>
       )}
 

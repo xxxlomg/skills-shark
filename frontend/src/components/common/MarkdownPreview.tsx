@@ -1,9 +1,7 @@
-import ReactMarkdown from "react-markdown";
+﻿import ReactMarkdown from "react-markdown";
 
 /**
- * Markdown 实时渲染预览（UI 反馈 2026-08-05 条目 6）。
- * 轻量样式映射，不引 typography 插件；用于创作页正文分栏/全屏预览。
- */
+ * Markdown 瀹炴椂娓叉煋棰勮锛圲I 鍙嶉 2026-08-05 鏉＄洰 6锛夈€? * 杞婚噺鏍峰紡鏄犲皠锛屼笉寮?typography 鎻掍欢锛涚敤浜庡垱浣滈〉姝ｆ枃鍒嗘爮/鍏ㄥ睆棰勮銆? */
 export function MarkdownPreview({
   content,
   className,
@@ -31,7 +29,7 @@ export function MarkdownPreview({
             </h3>
           ),
           p: (p) => (
-            <p className="my-1.5 text-[13px] leading-relaxed text-text-secondary">
+            <p className="my-1.5 text-[14px] leading-[1.75] text-text-secondary">
               {p.children}
             </p>
           ),

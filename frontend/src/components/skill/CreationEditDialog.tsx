@@ -158,7 +158,7 @@ export function CreationEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[85vh] w-[min(860px,92vw)] flex-col border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="flex max-h-[90vh] w-[min(1180px,94vw)] max-w-[min(1180px,calc(100%-2rem))] flex-col border-border/60 bg-card/95 backdrop-blur-xl sm:max-w-none">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <PenLine className="h-4 w-4 text-primary" />
@@ -235,12 +235,12 @@ export function CreationEditDialog({
                   <textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    rows={preview === "split" ? 18 : 16}
-                    className="w-full resize-y rounded-md border border-input bg-transparent p-2.5 font-mono text-xs leading-relaxed"
+                    rows={preview === "split" ? 24 : 22}
+                    className="w-full resize-y rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
                   />
                 )}
                 {preview !== "edit" && (
-                  <div className="min-h-[200px] overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-3">
+                  <div className="min-h-[240px] overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-4">
                     <MarkdownPreview content={body} />
                   </div>
                 )}
