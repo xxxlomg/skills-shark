@@ -33,7 +33,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Sheet,
   SheetContent,
@@ -112,7 +116,9 @@ function buildDesc(d: WbDraft): string {
 
 /** description 反解析（X4 回显）：先按中文约定「X。当Y时使用。」，
  *  再回退英文/双语约定「X. Use when Y.」（兼容存量）。命中 → purpose/triggers；未命中 → null。 */
-function reverseDesc(desc: string): { purpose: string; triggers: string } | null {
+function reverseDesc(
+  desc: string,
+): { purpose: string; triggers: string } | null {
   const t = desc.trim();
   // 中文约定：X。当Y时使用。 / X。当Y时。
   const zh = t.match(/^(.+?)。当(.+?)时(?:使用)?。?$/);
@@ -158,22 +164,47 @@ function StepBadge({ n }: { n: number }) {
 
 /** emoji 快选网格（X5），可再自定义输入。 */
 const COMMON_EMOJI = [
-  "✍️", "🧩", "🛠️", "🧪", "📦", "🔍", "🌐", "📊",
-  "🤖", "📝", "⚡", "🔧", "🧠", "🚀", "🗂️", "🔔",
-  "🎯", "📚", "🧮", "💾",
+  "✍️",
+  "🧩",
+  "🛠️",
+  "🧪",
+  "📦",
+  "🔍",
+  "🌐",
+  "📊",
+  "🤖",
+  "📝",
+  "⚡",
+  "🔧",
+  "🧠",
+  "🚀",
+  "🗂️",
+  "🔔",
+  "🎯",
+  "📚",
+  "🧮",
+  "💾",
 ];
 
 /** 写作准则（X6 问号悬浮内容）。 */
 const GUIDELINES = (
   <div className="flex flex-col gap-1">
-    <span>· description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用</span>
+    <span>
+      · description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用
+    </span>
     <span>· 正文祈使句书写，不用第二人称</span>
     <span>· 长资料拆到 references/，正文保持精简</span>
     <span>· name 用 hyphen-case，与目录名一致</span>
   </div>
 );
 
-export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onExit }: AuthoringWorkbenchProps) {
+export function AuthoringWorkbench({
+  skill,
+  skills,
+  refresh,
+  onOpenSettings,
+  onExit,
+}: AuthoringWorkbenchProps) {
   const [current, setCurrent] = useState<Skill | null>(skill);
   const draftId = current?.id ?? "new";
 
@@ -287,7 +318,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
 
   const refName = useMemo(
     () => skills.find((s) => s.id === refSkillId)?.name ?? "",
-    [skills, refSkillId]
+    [skills, refSkillId],
   );
 
   // 60s 未保存淡入 AI 引导；保存成功重置计时
@@ -319,7 +350,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       const { finishReason } = await generateSkillMdStream(
         aiTopic.trim(),
         draft,
-        (d) => setStream((s) => s + d)
+        (d) => setStream((s) => s + d),
       );
       if (finishReason === "length") {
         toast.warning("模型输出被截断——换更短的主题重试");
@@ -371,7 +402,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       });
       setDirtyAll(true);
     },
-    [draftId, setDirtyAll]
+    [draftId, setDirtyAll],
   );
 
   // Ctrl+S（仅 mount 期间）
@@ -404,7 +435,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         }
         let dir: string;
         if (location === "authored") {
-          const r = await skillNew({ name, description: desc, emoji: draft.emoji });
+          const r = await skillNew({
+            name,
+            description: desc,
+            emoji: draft.emoji,
+          });
           dir = r.skill_dir;
           // X5：恒写 SKILL.md（含 emoji），空 body 落占位，保证 emoji/description 落盘
           const bodyText = draft.body.trim()
@@ -415,7 +450,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             "SKILL.md",
             `---\nname: ${name}\ndescription: ${
               desc || "TODO: describe what this skill does and when to use it"
-            }\nemoji: ${yq(draft.emoji || "🧩")}\n---\n${bodyText}`
+            }\nemoji: ${yq(draft.emoji || "🧩")}\n---\n${bodyText}`,
           );
         } else {
           const r = await skillCommitDraft(location, {
@@ -433,12 +468,13 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         refresh();
         const all = await scanSkills();
         const found =
-          all.find((s) => s.skill_dir === dir) ?? all.find((s) => s.name === name);
+          all.find((s) => s.skill_dir === dir) ??
+          all.find((s) => s.name === name);
         if (found) {
           setCurrent(found);
           setStored(null);
           setOrigFm(
-            `name: ${found.name}\ndescription: ${found.description}\nemoji: ${found.emoji ?? "🧩"}`
+            `name: ${found.name}\ndescription: ${found.description}\nemoji: ${found.emoji ?? "🧩"}`,
           );
         }
       } else {
@@ -447,7 +483,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         await skillWriteFile(
           current.skill_dir,
           "SKILL.md",
-          `---\n${fm}\n---\n${draft.body}`
+          `---\n${fm}\n---\n${draft.body}`,
         );
         if (desc !== current.description) {
           await skillEditFrontmatter(current.skill_dir, [
@@ -489,7 +525,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         <MarkdownPreview content={draft.body} />
       </div>
     ),
-    [draft.body]
+    [draft.body],
   );
 
   return (
@@ -564,7 +600,9 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
               className="h-8 w-56 font-mono text-[13px]"
             />
             {nameInvalid && (
-              <span className="text-[11px] text-red-400">需小写字母数字 + 连字符</span>
+              <span className="text-[11px] text-red-400">
+                需小写字母数字 + 连字符
+              </span>
             )}
           </div>
         )}
@@ -591,7 +629,9 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         )}
         {/* X4 AI 创作按钮（保存按钮左侧） */}
         {aiHint && (
-          <span className="animate-fade-in text-[11px] text-primary">没灵感？试试 AI 创作</span>
+          <span className="animate-fade-in text-[11px] text-primary">
+            没灵感 ? 试试 AI 创作
+          </span>
         )}
         {llmReady ? (
           <Button
@@ -604,7 +644,10 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             AI 创作
           </Button>
         ) : (
-          <Tip side="bottom" label="未配置 LLM —— 点右侧齿轮到设置页填入 API Key">
+          <Tip
+            side="bottom"
+            label="未配置 LLM —— 点右侧齿轮到设置页填入 API Key"
+          >
             <Button size="sm" variant="secondary" disabled>
               <Sparkles className="h-3 w-3" />
               AI 创作
@@ -612,10 +655,19 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
           </Tip>
         )}
         {/* 设置入口（Topbar 沉浸隐藏后补偿，PLAN-08 §2.1） */}
-        <Button variant="ghost" size="sm" aria-label="设置" onClick={onOpenSettings}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="设置"
+          onClick={onOpenSettings}
+        >
           <Settings className="h-3.5 w-3.5" />
         </Button>
-        <Button size="sm" disabled={busy || nameInvalid} onClick={() => void save()}>
+        <Button
+          size="sm"
+          disabled={busy || nameInvalid}
+          onClick={() => void save()}
+        >
           {busy && <Loader2 className="h-3 w-3 animate-spin" />}
           <Save className="h-3 w-3" />
           保存
@@ -665,83 +717,83 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         className={cn(
           // R5：relative 供抽屉 absolute 锚定；pl = 400(抽屉) + 16(右缝)；抽屉 left-0 与顶栏左缘同线
           "relative flex min-h-0 flex-1 gap-4 transition-[padding-left] duration-500 ease-in-out",
-          descOpen && "pl-[416px]"
+          descOpen && "pl-[416px]",
         )}
       >
         {/* 编辑列（不再被参考/流式替换） */}
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {/* 工具条 tabs */}
-              <div className="flex shrink-0 items-center gap-1">
+          {/* 工具条 tabs */}
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant={rightTab === "body" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setRightTab("body")}
+            >
+              正文
+            </Button>
+            <Button
+              variant={rightTab === "files" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setRightTab("files")}
+            >
+              <FolderTree className="h-3 w-3" />
+              附带资源
+            </Button>
+            {rightTab === "body" && (
+              <div className="ml-2 flex items-center gap-1 border-l border-border/40 pl-2">
                 <Button
-                  variant={rightTab === "body" ? "secondary" : "ghost"}
+                  variant={preview === "edit" ? "secondary" : "ghost"}
                   size="sm"
                   className="h-7 px-2.5 text-xs"
-                  onClick={() => setRightTab("body")}
+                  onClick={() => setPreview("edit")}
                 >
-                  正文
+                  编辑
                 </Button>
                 <Button
-                  variant={rightTab === "files" ? "secondary" : "ghost"}
+                  variant={preview === "split" ? "secondary" : "ghost"}
                   size="sm"
                   className="h-7 px-2.5 text-xs"
-                  onClick={() => setRightTab("files")}
+                  onClick={() => setPreview("split")}
                 >
-                  <FolderTree className="h-3 w-3" />
-                  附带资源
+                  <Columns2 className="h-3 w-3" />
+                  分栏
                 </Button>
-                {rightTab === "body" && (
-                  <div className="ml-2 flex items-center gap-1 border-l border-border/40 pl-2">
-                    <Button
-                      variant={preview === "edit" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("edit")}
-                    >
-                      编辑
-                    </Button>
-                    <Button
-                      variant={preview === "split" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("split")}
-                    >
-                      <Columns2 className="h-3 w-3" />
-                      分栏
-                    </Button>
-                    <Button
-                      variant={preview === "preview" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("preview")}
-                    >
-                      <Eye className="h-3 w-3" />
-                      预览
-                    </Button>
-                  </div>
-                )}
+                <Button
+                  variant={preview === "preview" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setPreview("preview")}
+                >
+                  <Eye className="h-3 w-3" />
+                  预览
+                </Button>
               </div>
-              {rightTab === "files" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <FileTree skill={current} />
-                </div>
-              ) : (
-                <div
-                  className={
-                    preview === "split"
-                      ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
-                      : "flex min-h-0 flex-1 flex-col"
-                  }
-                >
-                  {preview !== "preview" && (
-                    <textarea
-                      value={draft.body}
-                      onChange={(e) => patch({ body: e.target.value })}
-                      className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
-                    />
-                  )}
-                  {preview !== "edit" && previewPane}
-                </div>
+            )}
+          </div>
+          {rightTab === "files" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <FileTree skill={current} />
+            </div>
+          ) : (
+            <div
+              className={
+                preview === "split"
+                  ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
+                  : "flex min-h-0 flex-1 flex-col"
+              }
+            >
+              {preview !== "preview" && (
+                <textarea
+                  value={draft.body}
+                  onChange={(e) => patch({ body: e.target.value })}
+                  className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
+                />
               )}
+              {preview !== "edit" && previewPane}
+            </div>
+          )}
         </div>
 
         {/* 右侧辅助 pane（R3-3 并列不挤压；R3-2 内部滚动，页面不滚） */}
@@ -750,7 +802,9 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             {refSkillId ? (
               <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
                 <ScrollText className="h-3.5 w-3.5 text-primary" />
-                <span className="truncate">内容参考 · {refName} · 只读，不进草稿</span>
+                <span className="truncate">
+                  内容参考 · {refName} · 只读，不进草稿
+                </span>
                 <div className="flex-1" />
                 <Button
                   variant="ghost"
@@ -766,14 +820,18 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
               <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
                 <span>
-                  {streaming ? "AI 生成中… 流式预览（只读）" : "AI 生成完成——内容已流式预览，可应用到正文"}
+                  {streaming
+                    ? "AI 生成中… 流式预览（只读）"
+                    : "AI 生成完成——内容已流式预览，可应用到正文"}
                 </span>
                 <div className="flex-1" />
                 {streamDone && (
                   <Button
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => (draft.body.trim() ? setConfirmApply(true) : applyStream())}
+                    onClick={() =>
+                      draft.body.trim() ? setConfirmApply(true) : applyStream()
+                    }
                   >
                     应用到正文
                   </Button>
@@ -811,93 +869,104 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             onInteractOutside={(e) => e.preventDefault()}
             className="absolute bottom-0 left-0 top-0 flex w-[400px] flex-col rounded-2xl border p-0 shadow-xl sm:max-w-[400px]"
           >
-          <SheetHeader className="flex-row items-center justify-between px-5 pb-1 pt-4">
-            <SheetTitle className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
-              <PenLine className="h-3.5 w-3.5 text-primary" />
-              我的描述
-            </SheetTitle>
-            <Tip side="bottom" label={GUIDELINES}>
-              <button
-                type="button"
-                aria-label="写作准则"
-                className="grid h-6 w-6 place-items-center rounded text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
-              >
-                <CircleHelp className="h-3.5 w-3.5" />
-              </button>
-            </Tip>
-          </SheetHeader>
-          <p className="px-5 text-[11px] text-text-tertiary">
-            回答两个问题——保存时自动生成 frontmatter description；AI 创作也只回显这两项。
-          </p>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-            {/* 做什么 */}
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <StepBadge n={1} />
-                <span className="text-xs font-medium text-text-primary">做什么</span>
-                <span className="text-[10px] text-red-400">*</span>
-              </div>
-              <textarea
-                value={draft.purpose}
-                onChange={(e) => patch({ purpose: e.target.value })}
-                placeholder="例：为 Spring Boot 项目生成规范的 changelog"
-                className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
-                rows={3}
-              />
-            </div>
-            {/* 何时用 */}
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <StepBadge n={2} />
-                <span className="text-xs font-medium text-text-primary">何时用</span>
-                <span className="text-[10px] text-text-tertiary">每行一条</span>
-              </div>
-              <textarea
-                value={draft.triggers}
-                onChange={(e) => patch({ triggers: e.target.value })}
-                placeholder={"例：\n用户要求整理 release notes\n提交历史需要汇总成变更日志"}
-                className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
-                rows={5}
-              />
-            </div>
-            {/* 内容参考（底部） */}
-            <div className="mt-auto border-t border-border/40 pt-3">
-              <div className="flex items-center gap-2">
-                <ScrollText className="h-3.5 w-3.5 text-primary" />
-                <h4 className="text-xs font-semibold text-text-primary">内容参考</h4>
-              </div>
-              <p className="mt-1 text-[11px] text-text-tertiary">
-                看看成熟技能怎么写——只读，渲染在右侧辅助 pane，不进草稿。
-              </p>
-              <div className="mt-2">
-                <Select
-                  value={refSkillId === "" ? undefined : refSkillId}
-                  onValueChange={(v) => {
-                    setRefSkillId(v);
-                    setStream("");
-                    setStreamDone(false);
-                  }}
-                  disabled={streaming}
+            <SheetHeader className="flex-row items-center justify-between px-5 pb-1 pt-4">
+              <SheetTitle className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+                <PenLine className="h-3.5 w-3.5 text-primary" />
+                我的描述
+              </SheetTitle>
+              <Tip side="bottom" label={GUIDELINES}>
+                <button
+                  type="button"
+                  aria-label="写作准则"
+                  className="grid h-6 w-6 place-items-center rounded text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
                 >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue placeholder="选一个技能查看其 SKILL.md（右侧辅助 pane）" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {refGroups.map(([label, arr]) => (
-                      <SelectGroup key={label}>
-                        <SelectLabel>{label}</SelectLabel>
-                        {arr.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.emoji || "🧩"} {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <CircleHelp className="h-3.5 w-3.5" />
+                </button>
+              </Tip>
+            </SheetHeader>
+            <p className="px-5 text-[11px] text-text-tertiary">
+              回答两个问题——保存时自动生成 frontmatter description；AI
+              创作也只回显这两项。
+            </p>
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+              {/* 做什么 */}
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={1} />
+                  <span className="text-xs font-medium text-text-primary">
+                    做什么
+                  </span>
+                  <span className="text-[10px] text-red-400">*</span>
+                </div>
+                <textarea
+                  value={draft.purpose}
+                  onChange={(e) => patch({ purpose: e.target.value })}
+                  placeholder="例：为 Spring Boot 项目生成规范的 changelog"
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={3}
+                />
+              </div>
+              {/* 何时用 */}
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={2} />
+                  <span className="text-xs font-medium text-text-primary">
+                    何时用
+                  </span>
+                  <span className="text-[10px] text-text-tertiary">
+                    每行一条
+                  </span>
+                </div>
+                <textarea
+                  value={draft.triggers}
+                  onChange={(e) => patch({ triggers: e.target.value })}
+                  placeholder={
+                    "例：\n用户要求整理 release notes\n提交历史需要汇总成变更日志"
+                  }
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={5}
+                />
+              </div>
+              {/* 内容参考（底部） */}
+              <div className="mt-auto border-t border-border/40 pt-3">
+                <div className="flex items-center gap-2">
+                  <ScrollText className="h-3.5 w-3.5 text-primary" />
+                  <h4 className="text-xs font-semibold text-text-primary">
+                    内容参考
+                  </h4>
+                </div>
+                <p className="mt-1 text-[11px] text-text-tertiary">
+                  看看成熟技能怎么写——只读，渲染在右侧辅助 pane，不进草稿。
+                </p>
+                <div className="mt-2">
+                  <Select
+                    value={refSkillId === "" ? undefined : refSkillId}
+                    onValueChange={(v) => {
+                      setRefSkillId(v);
+                      setStream("");
+                      setStreamDone(false);
+                    }}
+                    disabled={streaming}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue placeholder="选一个技能查看其 SKILL.md（右侧辅助 pane）" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {refGroups.map(([label, arr]) => (
+                        <SelectGroup key={label}>
+                          <SelectLabel>{label}</SelectLabel>
+                          {arr.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.emoji || "🧩"} {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-          </div>
           </SheetContent>
         </Sheet>
       )}
@@ -927,7 +996,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             <Button variant="ghost" size="sm" onClick={() => setAiOpen(false)}>
               取消
             </Button>
-            <Button size="sm" disabled={!aiTopic.trim() || streaming} onClick={() => void runAI()}>
+            <Button
+              size="sm"
+              disabled={!aiTopic.trim() || streaming}
+              onClick={() => void runAI()}
+            >
               <Sparkles className="h-3 w-3" />
               生成
             </Button>
@@ -936,7 +1009,10 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       </Dialog>
 
       {/* 应用 AI 结果确认（body 非空时） */}
-      <Dialog open={confirmApply} onOpenChange={(o) => !o && setConfirmApply(false)}>
+      <Dialog
+        open={confirmApply}
+        onOpenChange={(o) => !o && setConfirmApply(false)}
+      >
         <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
           <DialogHeader>
             <DialogTitle>替换当前正文？</DialogTitle>
@@ -945,7 +1021,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             应用 AI 结果会替换当前 body（草稿兜底仍保留旧内容，可恢复）。
           </p>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmApply(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmApply(false)}
+            >
               取消
             </Button>
             <Button
@@ -962,7 +1042,10 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       </Dialog>
 
       {/* 返回保护 */}
-      <Dialog open={confirmExit} onOpenChange={(o) => !o && setConfirmExit(false)}>
+      <Dialog
+        open={confirmExit}
+        onOpenChange={(o) => !o && setConfirmExit(false)}
+      >
         <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
           <DialogHeader>
             <DialogTitle>有未保存改动</DialogTitle>
@@ -971,7 +1054,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             草稿已自动兜底到本地——直接返回后，下次进入可恢复。
           </p>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmExit(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmExit(false)}
+            >
               取消
             </Button>
             <Button variant="ghost" size="sm" onClick={onExit}>
