@@ -54,7 +54,7 @@ import {
 import type { GitStatusInfo } from "@/lib/api";
 import { invoke } from "@tauri-apps/api/core";
 import type { MaskedConfig } from "@/lib/api";
-import { testLLMConnection } from "@/lib/translate-api";
+import { testLLMConnection } from "@/lib/ai";
 import { ACCENTS, getAccent, setAccent, type AccentId } from "@/lib/accent";
 
 interface SettingsDialogProps {

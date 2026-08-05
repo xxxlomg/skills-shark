@@ -49,22 +49,29 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  overlayClassName,
+  portalContainer,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "bottom" | "left" | "right"
   showCloseButton?: boolean
+  /** 透传给遮罩层；非模态推拉抽屉可传 "hidden" 去掉遮罩 */
+  overlayClassName?: string
+  /** Portal 挂载容器；配合 absolute 定位可锚定局部布局（如工作台主行） */
+  portalContainer?: HTMLElement | null
 }) {
   return (
-    <SheetPortal data-slot="sheet-portal">
-      <SheetOverlay />
+    <SheetPortal data-slot="sheet-portal" container={portalContainer ?? undefined}>
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
           "fixed z-50 bg-background shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500",
           side === "right" &&
             "inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+          // 左侧抽屉：避开 64px 工作台顶栏（top-16）与 16px 底边距（bottom-4），圆角卡片态
           side === "left" &&
-            "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
+            "bottom-4 left-0 top-16 w-3/4 rounded-r-2xl border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
           side === "top" &&
             "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
           side === "bottom" &&

@@ -17,3 +17,6 @@ Thumbs.db
 
 # 本地回收（可恢复删除）
 .trash/
+
+# 设计文档
+docs/

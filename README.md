@@ -16,6 +16,9 @@
 | **浏览视图** | 首页分类卡 → 分类详情 → 详情抽屉三级导航；网格 / 列表双布局；合集嵌套折叠；`Ctrl+K` 全局搜索（中文名 / 原名 / 描述全字段命中） |
 | **Skill Packs** | 勾选技能打包为 `.skillpack`；导入 / 导出 / 安装到技能库 / 删除；包内附 `pack.json` + `README.md` + 译文 sidecar |
 | **导入管线** | 本地 zip / Git URL 两种来源；安全解压预览；提交时拍平嵌套、同名自动改名 |
+| **创作工作台** | 全页沉浸式技能创作：新建 / 编辑 skill，name 前置 + 「做什么 / 何时用」引导表单自动派生 description；Markdown 编辑 / 分栏 / 预览；附带资源文件树（新建 / 删除 / 查看）；技能改名（目录 + frontmatter 同步）；草稿自动保存三态恢复、`Ctrl+S` |
+| **AI 创作** | 模型直出 SKILL.md 原文流式生成，右侧预览实时滚动跟随，可「应用到正文」；60s 无输入淡入引导；内容参考分组只读卡 |
+| **统一 AI 层** | 翻译 / AI 创作 / 连接测试统一走设置页 LLM 配置；各模块 prompt 模板集中在 `src/lib/ai/prompts/` 一处管理，便于维护 |
 | **外观** | 暗 / 亮双主题 + 四色 accent 预设，即时切换并持久化 |
 | **数据外部化** | 配置 / 译文 / Packs / 导入库统一存放在系统数据目录，重装不丢；旧目录自动迁移 |
 
@@ -70,16 +73,18 @@ skills-shark/
 │   │   │   ├── layout/        # Topbar / StatBar / TabNav / Footer / BackgroundFX
 │   │   │   ├── skill/         # HomeView / CategoryView / DetailSheet / SkillCard /
 │   │   │   │                  # FolderCard / PackCard / PacksView / PackCreateDialog /
-│   │   │   │                  # ImportDialog / UrlImportDialog / CommandSearch …
+│   │   │   │                  # ImportDialog / UrlImportDialog / CommandSearch /
+│   │   │   │                  # CreationView / AuthoringWorkbench（创作工作台）…
 │   │   │   ├── settings/      # 设置（扫描路径 / LLM / 外观）
 │   │   │   └── common/        # GhostCard / Tip / MarkdownRenderer / ConfirmDialog …
 │   │   ├── hooks/             # useSkills（扫描 + 分组）、mockSkills（?mock=1）
-│   │   ├── lib/               # api（invoke 封装）/ translate-api / bilingual / markdown / llm-config
+│   │   ├── lib/               # api（invoke 封装）/ translate-api / authoring-api / bilingual /
+│   │   │                      # markdown / llm-config / wb-draft / ai（统一 LLM 层 + prompts）
 │   │   ├── assets/brand/      # 品牌资产生成管线（源图 → tile / favicon / 全套应用图标）
 │   │   ├── App.tsx            # 主应用与全局状态
 │   │   └── index.css          # 主题变量 + accent 预设
 │   └── src-tauri/
-│       ├── src/               # scanner / translations / pack / import / config 等 commands（含单测）
+│       ├── src/               # scanner / translations / pack / import / config / authoring 等（含单测）
 │       ├── icons/             # 应用图标全尺寸
 │       └── tauri.conf.json
 ├── skills/                    # 示例扫描数据
@@ -170,6 +175,16 @@ xxx.skillpack (zip)
 
 ## 📌 版本记录
 
+### v0.2.0（2026-08-05）
+
+作者即创作者——从「看别人的」到「做自己的」。
+
+- **创作工作台（PLAN-07）**：全页沉浸式技能创作——新建 / 编辑 skill，name 前置 + 「做什么 / 何时用」引导表单自动派生 description；Markdown 编辑 / 分栏 / 预览；附带资源文件树（新建 / 删除 / 查看，SKILL.md 受保护）；技能改名（目录 + frontmatter 同步）；草稿自动保存三态恢复、`Ctrl+S`、返回守卫
+- **AI 创作（W3 契约）**：模型直出 SKILL.md 原文流式生成、右侧预览实时滚动跟随、可「应用到正文」；60s 无输入淡入引导；内容参考分组只读卡
+- **统一 AI 层**：新增 `src/lib/ai/`——翻译 / AI 创作 / 连接测试统一走设置页 LLM 配置；各模块 prompt 模板集中在 `prompts/` 一处管理
+- **中文回显**：AI 创作 description 改为中文结构「做什么。当何时用时。」，回显「做什么 / 何时用」为中文
+- **修复**：scanner 提取 emoji 按字节截断中文内容触发 `not a char boundary` panic → 改字符边界安全截断
+
 ### v0.1.0（2026-08-04）
 
 首个公开版本。
@@ -186,4 +201,4 @@ xxx.skillpack (zip)
 
 ---
 
-*最后更新：2026-08-04*
+*最后更新：2026-08-05*

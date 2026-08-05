@@ -280,9 +280,11 @@
 @keyframes tin {
   from { opacity: 0; transform: translateY(-12px) scale(0.96); }
 }
+/* 纯 opacity：fill-mode both 会保留 translateY(0)（非 none transform），
+   会破坏工作台 sticky 顶栏的包含块 —— 故去掉 transform（PLAN-08 §6①）。 */
 @keyframes view-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ==================== Base ==================== */

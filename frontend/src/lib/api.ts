@@ -803,6 +803,7 @@ export function skillValidate(
 export function skillNew(params: {
   name: string;
   description: string;
+  emoji?: string;
 }): Promise<{ skill_dir: string; source_path: string }> {
   if (isMockMode()) {
     const name = params.name.trim();
@@ -819,7 +820,7 @@ export function skillNew(params: {
       name,
       folder_name: name,
       description: params.description.trim(),
-      emoji: "✍️",
+      emoji: params.emoji ?? "✍️",
       scan_label: "创作",
       source_path: `/mock/authored/${name}/SKILL.md`,
       skill_dir: `/mock/authored/${name}`,
@@ -847,7 +848,7 @@ export function skillNew(params: {
 /** C6/C9：草稿落盘（AI 链路复用；模板模式双落点也走这里，body 空 = 骨架）。 */
 export function skillCommitDraft(
   location: string,
-  draft: { name: string; description: string; body?: string; references?: { rel_path: string; content: string }[] }
+  draft: { name: string; description: string; emoji?: string | null; body?: string; references?: { rel_path: string; content: string }[] }
 ): Promise<{ skill_dir: string; validation: ValidationReport }> {
   if (isMockMode()) {
     const name = draft.name.trim();
@@ -864,7 +865,7 @@ export function skillCommitDraft(
       name,
       folder_name: name,
       description: draft.description.trim(),
-      emoji: location === "authored" ? "✍️" : null,
+      emoji: draft.emoji ?? (location === "authored" ? "✍️" : null),
       scan_label: label,
       source_path: `${dir}/SKILL.md`,
       skill_dir: dir,
@@ -899,6 +900,7 @@ export function skillEditFrontmatter(
       if (!skill || e.op !== "set") continue;
       if (e.key === "name") skill.name = e.value ?? "";
       if (e.key === "description") skill.description = e.value ?? "";
+      if (e.key === "emoji") skill.emoji = e.value ?? null;
     }
     return Promise.resolve({ validation: mockValidationReport("default", "diagnostic") });
   }

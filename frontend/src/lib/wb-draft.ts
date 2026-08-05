@@ -8,8 +8,7 @@ export interface WbDraft {
   desc: string;
   purpose: string;
   triggers: string;
-  steps: string;
-  resources: { scripts: boolean; references: boolean; assets: boolean };
+  emoji: string;
   body: string;
 }
 
@@ -23,8 +22,7 @@ export const EMPTY_DRAFT: WbDraft = {
   desc: "",
   purpose: "",
   triggers: "",
-  steps: "",
-  resources: { scripts: false, references: false, assets: false },
+  emoji: "🧩",
   body: "",
 };
 
@@ -36,7 +34,8 @@ export function loadDraft(id: string): StoredDraft | null {
     if (!raw) return null;
     const v = JSON.parse(raw) as StoredDraft;
     if (!v || typeof v.savedAt !== "number" || !v.draft) return null;
-    return v;
+    // 旧草稿字段漂移兼容：与 EMPTY_DRAFT 合并补默认（emoji 等），遗留 steps/resources 自然丢弃
+    return { savedAt: v.savedAt, draft: { ...EMPTY_DRAFT, ...v.draft } };
   } catch {
     return null;
   }

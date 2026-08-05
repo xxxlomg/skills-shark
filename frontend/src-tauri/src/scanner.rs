@@ -186,7 +186,8 @@ fn extract_description_zh(skill_id: &str) -> String {
 
 fn extract_emoji(text: &str) -> Option<String> {
     let re = Regex::new(r#"emoji:\s*["']?([^"'\n]+)"#).unwrap();
-    let limited = &text[..text.len().min(2000)];
+    // 按字节截断可能落在多字节 UTF-8 字符中间（中文内容）→ 用字符边界安全截断，避免 panic
+    let limited = &text[..text.floor_char_boundary(2000.min(text.len()))];
     re.captures(limited)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().trim().to_string())

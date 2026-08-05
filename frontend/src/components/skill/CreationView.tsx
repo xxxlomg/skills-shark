@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   EllipsisVertical,
   Package,
-  PenLine,
   Pencil,
   ScrollText,
   Sparkles,
@@ -50,6 +49,8 @@ interface CreationViewProps {
   onNewSignalConsumed: () => void;
   /** 工作台态变化 → App 隐藏 StatBar/TabNav（沉浸创作） */
   onWorkbenchChange: (active: boolean) => void;
+  /** 工作台顶栏设置入口 → App 打开设置页（Topbar 沉浸隐藏后补偿，PLAN-08 §2.1） */
+  onOpenSettings: () => void;
 }
 
 /** 一键转换派生 short_description（25–64 字符硬约束自动满足）。 */
@@ -69,6 +70,7 @@ export function CreationView({
   newSignal,
   onNewSignalConsumed,
   onWorkbenchChange,
+  onOpenSettings,
 }: CreationViewProps) {
   const authored = useMemo(
     () => skills.filter((s) => s.tool_id === "authored"),
@@ -180,6 +182,7 @@ export function CreationView({
         skill={wb.skill}
         skills={skills}
         refresh={refresh}
+        onOpenSettings={onOpenSettings}
         onExit={() => {
           setWb(null);
           onWorkbenchChange(false);
@@ -376,8 +379,8 @@ function AuthoredCard({
           className="glass-card glass-card-hover card-glow relative flex w-full cursor-pointer items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
         >
           <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
-          <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
-            <PenLine className="h-5 w-5" />
+          <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-[22px] leading-none">
+            {skill.emoji || "🧩"}
           </span>
           <div className="relative z-[1] min-w-0 flex-1">
             <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
@@ -406,8 +409,8 @@ function AuthoredCard({
         className="glass-card glass-card-hover card-glow relative flex h-full w-full cursor-pointer flex-col overflow-hidden p-[18px] text-left"
       >
         <div className="relative z-[1] flex items-start justify-between">
-          <span className="grid h-[42px] w-[42px] place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
-            <PenLine className="h-5 w-5" />
+          <span className="grid h-[42px] w-[42px] place-items-center rounded-[12px] border border-stroke bg-glass-2 text-[22px] leading-none">
+            {skill.emoji || "🧩"}
           </span>
           {menu}
         </div>

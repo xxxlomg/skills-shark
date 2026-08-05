@@ -408,16 +408,26 @@ function App() {
     <>
       <BackgroundFX />
 
-      <Topbar
-        totalSkills={totalSkills}
-        syncing={syncing}
-        onSearchClick={() => setCmdkOpen(true)}
-        onSync={handleSync}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      {/* PLAN-08 §2.1：工作台态沉浸——隐藏全局 header（Topbar）与 Footer */}
+      {!wbActive && (
+        <Topbar
+          totalSkills={totalSkills}
+          syncing={syncing}
+          onSearchClick={() => setCmdkOpen(true)}
+          onSync={handleSync}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      )}
 
       <main className="flex-1">
-        <div className="mx-auto w-full max-w-[1180px] px-[26px] pb-20">
+        {/* PLAN-08 三轮：工作台态全宽 + 无底部留白（页面不滚，内部自滚） */}
+        <div
+          className={
+            wbActive
+              ? "mx-auto w-full px-[26px]"
+              : "mx-auto w-full max-w-[1180px] px-[26px] pb-20"
+          }
+        >
           {!wbActive && (
             <StatBar
               total={totalSkills}
@@ -463,6 +473,7 @@ function App() {
               newSignal={newSignal}
               onNewSignalConsumed={() => setNewSignal(0)}
               onWorkbenchChange={setWbActive}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
@@ -509,7 +520,7 @@ function App() {
         </div>
       </main>
 
-      <Footer />
+      {!wbActive && <Footer />}
 
       <DetailSheet
         skill={liveSelectedSkill}
