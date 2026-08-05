@@ -622,15 +622,8 @@ pub fn skill_new(name: String, description: String) -> Result<serde_json::Value,
     }))
 }
 
-/// C5 核心（纯函数，base_dir 参数化以便单测不碰全局 DATA_DIR）：
-/// 在 base 下创建 `<name>/SKILL.md` 模板。校验 name/description；
-/// 同名已存在 → Err("EXISTS")；写失败回滚半成品目录。
-pub(crate) fn create_skill_template(
-    base: &std::path::Path,
-    name: &str,
-    description: &str,
-) -> Result<std::path::PathBuf, String> {
-    let name = name.trim();
+/// name 规则（FM-04 同语义）：hyphen-case + ≤64。skill_new / skill_rename 共用。
+pub(crate) fn validate_skill_name(name: &str) -> Result<(), String> {
     if !crate::validate::is_hyphen_case(name) {
         return Err(
             "name 必须为 hyphen-case：小写字母数字 + 连字符，不首尾连字符、不双连字符"
@@ -640,6 +633,19 @@ pub(crate) fn create_skill_template(
     if name.len() > 64 {
         return Err("name 不得超过 64 字符".to_string());
     }
+    Ok(())
+}
+
+/// C5 核心（纯函数，base_dir 参数化以便单测不碰全局 DATA_DIR）：
+/// 在 base 下创建 `<name>/SKILL.md` 模板。校验 name/description；
+/// 同名已存在 → Err("EXISTS")；写失败回滚半成品目录。
+pub(crate) fn create_skill_template(
+    base: &std::path::Path,
+    name: &str,
+    description: &str,
+) -> Result<std::path::PathBuf, String> {
+    let name = name.trim();
+    validate_skill_name(name)?;
     let desc = description.trim();
     if desc.is_empty() {
         return Err("description 不能空——它是模型决定是否使用该技能的唯一依据".to_string());

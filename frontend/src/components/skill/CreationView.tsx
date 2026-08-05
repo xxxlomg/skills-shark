@@ -16,7 +16,7 @@ import { Tip } from "@/components/common/Tip";
 import { LayoutToggle } from "./LayoutToggle";
 import { NewSkillDialog } from "./NewSkillDialog";
 import { CreationEditDialog } from "./CreationEditDialog";
-import { skillEditFrontmatter, type Skill } from "@/lib/api";
+import { skillRename, type Skill } from "@/lib/api";
 import type { LayoutMode } from "@/hooks/useSkills";
 
 /**
@@ -60,9 +60,7 @@ export function CreationView({
     if (!renaming) return;
     setRenameBusy(true);
     try {
-      await skillEditFrontmatter(renaming.skill_dir, [
-        { key: "name", op: "set", value: newName.trim() },
-      ]);
+      await skillRename(renaming.skill_dir, newName.trim());
       toast.success(`已重命名为 ${newName.trim()}`);
       setRenaming(null);
       refresh();

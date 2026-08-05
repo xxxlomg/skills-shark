@@ -901,6 +901,22 @@ export function skillEditFrontmatter(
   return invoke("skill_edit_frontmatter", { skillDir, edits });
 }
 
+/** 重命名 authored 技能（目录名 + frontmatter 同步；有 Hub 引用拒）。 */
+export function skillRename(
+  skillDir: string,
+  newName: string
+): Promise<{ skill_dir: string }> {
+  if (isMockMode()) {
+    const skill = MOCK_SKILLS.find((s) => s.skill_dir === skillDir);
+    if (skill) {
+      skill.name = newName;
+      skill.skill_dir = `${skillDir.slice(0, skillDir.lastIndexOf("/"))}/${newName}`;
+    }
+    return Promise.resolve({ skill_dir: skill?.skill_dir ?? skillDir });
+  }
+  return invoke("skill_rename", { skillDir, newName });
+}
+
 /** C6：编辑器整文件写（rel_path 禁 .. / 绝对路径，后端归属闸）。 */
 export function skillWriteFile(
   skillDir: string,

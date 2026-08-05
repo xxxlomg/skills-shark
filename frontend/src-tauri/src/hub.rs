@@ -77,7 +77,7 @@ fn ledger_path(base: &Path) -> PathBuf {
 
 /// Windows `fs::canonicalize` 返回 UNC 扩展路径前缀（`\\?\C:\…` / `\\?\UNC\…`），
 /// 账本落盘与展示前剥离，并统一分隔符为反斜杠（junction/文件 API 均接受）。
-fn clean_path_str(p: &Path) -> String {
+pub(crate) fn clean_path_str(p: &Path) -> String {
     let s = p.to_string_lossy().to_string();
     let stripped = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{}", rest)

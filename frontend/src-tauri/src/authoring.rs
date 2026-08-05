@@ -611,6 +611,67 @@ pub fn skill_edit_frontmatter(
     Ok(serde_json::json!({ "validation": report }))
 }
 
+/// 重命名 authored 技能（UI 反馈 2026-08-05）：目录名 + frontmatter name 同步改。
+/// 仅允许 authored 根下；目标名已存在 → Err("EXISTS")；
+/// 台账有引用指向该目录 → 拒（junction source 会失效，先解除再改名）。
+/// frontmatter 改写失败回滚目录名，不留半成品。
+#[tauri::command]
+pub fn skill_rename(skill_dir: String, new_name: String) -> Result<serde_json::Value, String> {
+    let dir = PathBuf::from(&skill_dir);
+    let ledger = crate::hub::load_ledger(&crate::config::get_data_dir());
+    let sources: Vec<String> = ledger.links.iter().map(|l| l.source.clone()).collect();
+    let new_dir = rename_skill_core(
+        &dir,
+        &new_name,
+        &crate::config::authored_dir(),
+        &sources,
+    )?;
+    // 同步 frontmatter name；失败回滚目录名
+    let edit = FrontmatterEdit {
+        key: "name".into(),
+        op: "set".into(),
+        value: Some(new_name.trim().to_string()),
+    };
+    if let Err(e) = skill_edit_frontmatter(new_dir.to_string_lossy().to_string(), vec![edit]) {
+        let _ = std::fs::rename(&new_dir, &dir);
+        return Err(e);
+    }
+    Ok(serde_json::json!({ "skill_dir": new_dir.to_string_lossy() }))
+}
+
+/// 重命名纯核心（参数化以便单测）：name 校验 + authored 归属 + EXISTS + 引用拒 + 目录改名。
+pub(crate) fn rename_skill_core(
+    dir: &Path,
+    new_name: &str,
+    authored_root: &Path,
+    ledger_sources: &[String],
+) -> Result<PathBuf, String> {
+    let name = new_name.trim();
+    crate::commands::validate_skill_name(name)?;
+    assert_path_owned_with_roots(dir, &[authored_root.to_path_buf()])?;
+    if !dir.is_dir() {
+        return Err("技能目录不存在".into());
+    }
+    let parent = dir
+        .parent()
+        .ok_or_else(|| "无法取父目录".to_string())?;
+    let new_dir = parent.join(name);
+    if new_dir.exists() {
+        return Err("EXISTS".into());
+    }
+    // 台账引用检查：source 等于该目录或其子路径 → 拒
+    let dir_clean = crate::hub::clean_path_str(dir);
+    let prefix = format!("{dir_clean}\\");
+    if ledger_sources
+        .iter()
+        .any(|s| *s == dir_clean || s.starts_with(&prefix))
+    {
+        return Err("该技能有 Hub 引用，先解除引用再重命名".into());
+    }
+    std::fs::rename(dir, &new_dir).map_err(|e| format!("目录改名失败：{e}"))?;
+    Ok(new_dir)
+}
+
 // ---------------------------------------------------------------------------
 // C10 单测：字节级保留（验收硬标准）
 // ---------------------------------------------------------------------------
@@ -695,6 +756,63 @@ mod c10_tests {
     fn rejects_no_frontmatter_and_unclosed() {
         assert!(edit_frontmatter_checked("# just body", &[]).is_err());
         assert!(edit_frontmatter_checked("---\nname: x\nno close", &[]).is_err());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 重命名纯核心单测（UI 反馈 2026-08-05）
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod rename_tests {
+    use super::rename_skill_core;
+
+    #[test]
+    fn renames_dir_under_authored_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("authored");
+        let dir = root.join("old-name");
+        std::fs::create_dir_all(&dir).unwrap();
+        let new_dir = rename_skill_core(&dir, "new-name", &root, &[]).unwrap();
+        assert!(new_dir.is_dir());
+        assert!(!dir.exists());
+        assert!(new_dir.ends_with("new-name"));
+    }
+
+    #[test]
+    fn rejects_exists_and_bad_name_and_outside_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("authored");
+        let dir = root.join("a-skill");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(root.join("taken")).unwrap();
+        // EXISTS
+        assert_eq!(
+            rename_skill_core(&dir, "taken", &root, &[]).unwrap_err(),
+            "EXISTS"
+        );
+        // 非法 name
+        assert!(rename_skill_core(&dir, "Bad_Name", &root, &[]).is_err());
+        // 非 authored 根下
+        let outside = tmp.path().join("elsewhere");
+        std::fs::create_dir_all(&outside).unwrap();
+        assert!(rename_skill_core(&outside, "ok-name", &root, &[]).is_err());
+    }
+
+    #[test]
+    fn rejects_when_ledger_references_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("authored");
+        let dir = root.join("linked-skill");
+        std::fs::create_dir_all(&dir).unwrap();
+        let clean = crate::hub::clean_path_str(&dir);
+        // 精确匹配与子路径匹配都拒
+        assert!(rename_skill_core(&dir, "x-name", &root, &[clean.clone()]).is_err());
+        assert!(rename_skill_core(&dir, "x-name", &root, &[format!("{clean}\\agents")])
+            .is_err());
+        // 无关引用放行
+        assert!(dir.exists());
+        assert!(rename_skill_core(&dir, "free-name", &root, &["C:\\other\\skill".into()])
+            .is_ok());
     }
 }
 
