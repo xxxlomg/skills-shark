@@ -608,6 +608,65 @@ mod tests {
         assert!(!link.id.is_empty());
     }
 
+    /// P8 反向场景：源工具在扫描序后面（codex 真源 + claude junction 落点）。
+    /// 旧逻辑按扫描序取首个为代表，claude junction 会抢占代表位导致 codex 真源被隐藏。
+    /// 修复后 junction 落点恒不为代表，真源保留。
+    #[test]
+    fn hub_linked_rep_priority_reverse_source_later() {
+        let root = tmp_root("junction-rev");
+        let tgt_tool = root.join("claude"); // 落点工具（扫描序前）
+        let src_tool = root.join("codex"); // 出处工具（扫描序后）
+        fs::create_dir_all(&src_tool).unwrap();
+        fs::create_dir_all(&tgt_tool).unwrap();
+        make_skill(&src_tool, "image-gen");
+        make_skill(&tgt_tool, "native-skill");
+
+        // 在 claude 侧建 junction，指向 codex 真源 image-gen
+        let link = crate::hub::link_skill_to_dir(
+            &root.join("data"),
+            &src_tool.join("image-gen"),
+            &tgt_tool,
+            "claude-code",
+            crate::hub::LinkMode::Link,
+        )
+        .unwrap();
+
+        // 扫描顺序：claude（junction 落点）在前，codex（真源）在后 —— 反向场景
+        let skills = live(scan_all_skills(&[
+            target(&tgt_tool, "claude-code", "Claude Code"),
+            target(&src_tool, "codex", "Codex CLI"),
+        ]));
+        assert_eq!(skills.len(), 3);
+
+        let junction = skills
+            .iter()
+            .find(|s| s.id == "claude-code|image-gen")
+            .unwrap();
+        assert!(junction.hub_linked, "claude 侧 junction 落点必须被识别");
+        assert!(
+            !junction.is_representative,
+            "junction 落点恒不为代表，即使扫描序在前"
+        );
+
+        let origin = skills
+            .iter()
+            .find(|s| s.id == "codex|image-gen")
+            .unwrap();
+        assert!(
+            origin.is_representative,
+            "真源（codex）必须为代表，技能库不被折叠"
+        );
+        assert_eq!(
+            origin.other_sources,
+            vec!["claude-code".to_string()],
+            "落点作为 other_sources 跟随真源"
+        );
+
+        let _ = junction::delete(tgt_tool.join("image-gen"));
+        let _ = fs::remove_dir_all(&root);
+        assert!(!link.id.is_empty());
+    }
+
     /// 历史残留自愈：meta 已是新键但 md 仍旧名（过去 rekey rename 失败被吞）→
     /// 扫描时正向重算旧键并改名，状态恢复「已翻译」。
     #[test]
@@ -701,21 +760,38 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
     // builtin → 注册表 → 自定义 → 导入）首个为代表。非代表副本保留在输出中
     // （sync_deleted 依赖全量 id，防止误杀其译文），前端按 is_representative 折叠。
     // 仅跨工具去重：同工具内不同合集的同名目录是不同技能，不折叠。
+    //
+    // P8 修正：hub junction（重解析点）落点是「引用副本」，不是真正出处。
+    // 若落点工具排在源工具前面（如 claude-code 排在 codex 前），旧逻辑会让
+    // junction 落点抢占代表位，真正的源被前端 is_representative 折叠隐藏
+    // （表现为「codex 技能库的 image-gen 不见了」）。故：
+    //   • hub_linked=true 的落点恒不为代表（只要同组跨工具存在非 junction 真源）；
+    //   • 真源之间才按扫描序决胜。
     for i in 0..skills.len() {
-        let mut earlier_rep: Option<usize> = None;
+        let mut earlier_real_rep: Option<usize> = None;
         let mut others: Vec<String> = Vec::new();
+        let mut has_real_source = false; // 同组跨工具是否存在非 junction 真源
         for j in 0..skills.len() {
             if j == i || skills[j].folder_name != skills[i].folder_name {
                 continue;
             }
             if skills[j].tool_id != skills[i].tool_id {
-                if j < i && earlier_rep.is_none() {
-                    earlier_rep = Some(j);
+                // junction 落点不占代表位、也不计为真源
+                if !skills[j].hub_linked && j < i && earlier_real_rep.is_none() {
+                    earlier_real_rep = Some(j);
+                }
+                if !skills[j].hub_linked {
+                    has_real_source = true;
                 }
                 others.push(skills[j].tool_id.clone());
             }
         }
-        skills[i].is_representative = earlier_rep.is_none();
+        let rep = if skills[i].hub_linked {
+            earlier_real_rep.is_none() && !has_real_source
+        } else {
+            earlier_real_rep.is_none()
+        };
+        skills[i].is_representative = rep;
         skills[i].other_sources = others;
     }
 
