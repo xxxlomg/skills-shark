@@ -8,9 +8,9 @@
 
 通常是 Key 未配置或配置无效。打开「设置 → LLM 配置」完成配置并测试连通性。如果连通性测试失败，留意提示中的具体网络错误（代理、证书、域名解析等）。
 
-## Mock 模式是什么？怎么开关？
+## Mock 模式是什么？怎么开？
 
-Mock 模式用模拟数据运行整个界面，用于无后端环境的预览与开发。双击首页左上角 Logo 进入，快捷键 `Shift + Alt + M` 切换。生产环境正常使用时无需关心。
+Mock 模式用模拟数据运行整个界面，用于无后端环境的预览与开发。在地址栏加 `?mock=1` 参数即可启用（如 `http://localhost:5173/?mock=1`）。打包后的桌面应用内置真实后端，无需关心。
 
 ## Pack 卡片的「发布」按钮为什么是灰的？
 
@@ -35,20 +35,21 @@ junction 是 Windows 的目录连接机制，目标目录直接指向源目录�
 
 SkillShark 是本地优先设计：
 
-- 配置与 Key 只存放在本机用户目录 `~/.skills-manage/`；
+- 配置与 Key 只存放在本机数据目录（Windows 为 `%APPDATA%\Skills Shark`）；
 - 除你主动配置的模型服务与 git 远端外，不产生任何网络请求；
 - 翻译、打包、引用等操作全部在本机完成。
 
 ## 应用的数据都存放在哪里？
 
-统一在用户目录 `~/.skills-manage/` 下：
+统一在数据目录下（Windows 为 `%APPDATA%\Skills Shark`，即 `C:\Users\你的用户名\AppData\Roaming\Skills Shark`；也可用环境变量 `SKILLS_SHARK_DATA` 整体改址）：
 
-- `settings.json`：应用配置（含 Key）；
-- `translations/`：全部译文；
+- `config.json`：应用配置（含 Key）；
+- `translations/` 与 `translations.json`：全部译文；
 - `packs/`：Pack 文件；
-- `imported/`：Pack 安装出的技能；
-- `downloads/`：导入下载缓存（可在设置中改路径）；
+- `imported/`：Pack 安装出的技能，也是下载导入的默认位置（可在设置改路径）；
 - `authored/`：创作工作台的草稿；
-- `hub/links.json`：引用台账。
+- `links.json`：Hub 引用台账；
+- `tmp/`：git 货架克隆临时区，启动自动清理；
+- `debug.log`：调试日志。
 
 备份该目录即可完整迁移你的所有数据。

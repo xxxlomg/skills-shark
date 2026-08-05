@@ -21,7 +21,7 @@
 - 批量翻译：合集页可一键批量翻译该合集下所有技能；
 - 元数据同译：frontmatter 中的标题与描述也会翻译，卡片与搜索结果直接显示中文；
 - 过期提醒：原文更新后译文标记为过期，可一键重翻；
-- 存储位置：所有译文统一存放在 `~/.skills-manage/translations/` 下，按源路径哈希组织，不侵入任何工具目录；
+- 存储位置：所有译文统一存放在数据目录的 `translations/` 下（Windows 为 `%APPDATA%\Skills Shark\translations\`），文件名为技能 ID 的 percent-encode，元数据索引记在 `translations.json`，不侵入任何工具目录；
 - 删除译文：详情页提供删除入口，删除后卡片回到原文显示。
 
 ## Hub：跨工具引用
@@ -59,7 +59,7 @@ Pack 是技能的打包分发单元：
 - 导出：把已创建的 Pack 导出为 `.skillpack` 文件，发给任何人；
 - 发布：配置「技能仓库」后，可一键把 Pack 推送到你自己的 git 仓库货架（见下文）。
 
-所有 Pack 文件统一存放在 `~/.skills-manage/packs/`，安装校验采用三道闸：`pack.json` 白名单、全文件 sha256 校验、SKILL.md 解析，任何一闸失败即整体拒绝。
+所有 Pack 文件统一存放在数据目录的 `packs/` 下，安装校验采用三道闸：`pack.json` 白名单、全文件 sha256 校验、SKILL.md 解析，任何一闸失败即整体拒绝。
 
 ## 导入
 
@@ -69,7 +69,7 @@ Pack 是技能的打包分发单元：
 - URL 直导：粘贴技能 zip 的下载链接；
 - Git 货架：输入 git 仓库地址，浏览其中的 Pack 并按提交选择性导入。
 
-下载文件统一放在设置的「下载路径」（默认 `~/.skills-manage/downloads/`）。
+下载文件统一放在设置的「下载路径」（默认为数据目录的 `imported/`）。
 
 ## Git 货架与发布
 
