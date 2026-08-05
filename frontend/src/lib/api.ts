@@ -62,6 +62,8 @@ export interface MaskedConfig {
   _has_key: boolean;
   /** 发布仓库配置（未设置为 null） */
   publish_repo: { local_path: string; remote_url: string } | null;
+  /** PLAN-09 P5：当前生效的下载/导入目录 */
+  download_dir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,16 @@ export function writeTranslation(params: {
 /** 加载脱敏配置 */
 export function loadConfig(): Promise<MaskedConfig> {
   return invoke<MaskedConfig>("load_config");
+}
+
+/** PLAN-09 P5：读取当前生效的下载/导入目录 */
+export function getDownloadDir(): Promise<string> {
+  return invoke<string>("get_download_dir");
+}
+
+/** PLAN-09 P5：保存自定义下载/导入目录（空串 = 恢复默认） */
+export function setDownloadDir(dir: string): Promise<void> {
+  return invoke("set_download_dir", { dir });
 }
 
 /** 保存 LLM 配置（v0.2 B5 收尾：tools 走 hub_*_tool 命令，不再经此通道） */

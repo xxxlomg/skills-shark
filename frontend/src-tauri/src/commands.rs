@@ -157,6 +157,7 @@ pub fn save_config(
             model: llm_model,
         },
         publish_repo: old.publish_repo,
+        download_dir: old.download_dir,
     };
     match config::save_config(&new_config) {
         Ok(()) => {
@@ -168,6 +169,23 @@ pub fn save_config(
             Err(e)
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// P5 下载/导入目录（PLAN-09 P5）：URL 下载、Pack 安装、zip/目录导入统一归口
+// config::imported_dir()，此处仅提供读取/保存命令。
+// ---------------------------------------------------------------------------
+
+/// 返回当前生效的下载/导入目录（含自定义配置展开后的实际路径）
+#[tauri::command]
+pub fn get_download_dir() -> String {
+    config::imported_dir().to_string_lossy().to_string()
+}
+
+/// 保存自定义下载/导入目录（空串 = 恢复默认）
+#[tauri::command]
+pub fn set_download_dir(dir: String) -> Result<(), String> {
+    config::set_download_dir(Some(dir))
 }
 
 // ---------------------------------------------------------------------------

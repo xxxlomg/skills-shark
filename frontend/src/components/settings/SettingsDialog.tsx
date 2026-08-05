@@ -50,6 +50,8 @@ import {
   repoSetup,
   savePublishRepo,
   gitStatus,
+  getDownloadDir,
+  setDownloadDir,
 } from "@/lib/api";
 import type { GitStatusInfo } from "@/lib/api";
 import { invoke } from "@tauri-apps/api/core";
@@ -103,6 +105,9 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
   const [repoRemoteUrl, setRepoRemoteUrl] = useState("");
   const [repoBusy, setRepoBusy] = useState(false);
   const [repoStatus, setRepoStatus] = useState<GitStatusInfo | null>(null);
+  // P5 下载/导入目录
+  const [downloadDir, setDownloadDirState] = useState("");
+  const [downloadDirSaving, setDownloadDirSaving] = useState(false);
 
   // 加载配置
   useEffect(() => {
@@ -117,6 +122,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
             local_path: "D:\\mock\\my-skill-repo",
             remote_url: "https://github.com/mock/my-skill-repo.git",
           },
+          download_dir: "D:\\mock\\skills",
         });
       }
       return invoke<MaskedConfig>("load_config");
@@ -135,6 +141,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         setTools(toolList);
         setRepoLocalPath(masked.publish_repo?.local_path ?? "");
         setRepoRemoteUrl(masked.publish_repo?.remote_url ?? "");
+        setDownloadDirState(masked.download_dir ?? "");
         if (masked.publish_repo) {
           gitStatus().then(setRepoStatus).catch(() => setRepoStatus(null));
         } else {
@@ -331,6 +338,50 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
       onSaved?.();
     } catch {
       toast.error("清除失败");
+    }
+  }, [onSaved]);
+
+  // ---- P5 下载/导入目录 ----
+
+  const handleDownloadDirPick = useCallback(async () => {
+    if (isMockMode()) {
+      toast.info("Mock 模式不支持选择文件夹，请直接输入路径");
+      return;
+    }
+    try {
+      const picked = await openFileDialog({ directory: true, multiple: false });
+      if (typeof picked === "string") setDownloadDirState(picked);
+    } catch {
+      /* 用户取消 */
+    }
+  }, []);
+
+  const handleSaveDownloadDir = useCallback(async () => {
+    setDownloadDirSaving(true);
+    try {
+      await setDownloadDir(downloadDir.trim());
+      toast.success(downloadDir.trim() ? "下载/导入目录已保存" : "已恢复默认下载目录");
+      onSaved?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      toast.error(`保存失败：${msg}`);
+    } finally {
+      setDownloadDirSaving(false);
+    }
+  }, [downloadDir, onSaved]);
+
+  const handleResetDownloadDir = useCallback(async () => {
+    setDownloadDirState("");
+    setDownloadDirSaving(true);
+    try {
+      await setDownloadDir("");
+      toast.success("已恢复默认下载目录");
+      onSaved?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      toast.error(`操作失败：${msg}`);
+    } finally {
+      setDownloadDirSaving(false);
     }
   }, [onSaved]);
 
@@ -599,6 +650,54 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                     <Plus className="mr-1 h-3 w-3" />
                     {addingTool ? "添加中…" : "添加工具"}
                   </Button>
+                </div>
+
+                {/* P5 下载/导入路径 */}
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    下载/导入路径
+                  </p>
+                  <p className="text-[11px] text-text-tertiary">
+                    URL 下载、Pack 安装、zip/目录导入的技能存放目录。留空使用默认。
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="D:\skills-downloads （留空 = 默认）"
+                      value={downloadDir}
+                      onChange={(e) => setDownloadDirState(e.target.value)}
+                      className="text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadDirPick}
+                      className="shrink-0"
+                    >
+                      选择…
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleSaveDownloadDir}
+                      disabled={downloadDirSaving || !loaded}
+                    >
+                      {downloadDirSaving ? "保存中…" : "保存路径"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleResetDownloadDir}
+                      disabled={downloadDirSaving || !loaded}
+                      className="text-text-tertiary"
+                    >
+                      恢复默认
+                    </Button>
+                  </div>
                 </div>
               </>
             )}

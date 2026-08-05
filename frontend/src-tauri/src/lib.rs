@@ -31,6 +31,8 @@ pub fn run() {
             commands::load_config,
             commands::get_llm_api_key,
             commands::save_config,
+            commands::get_download_dir,
+            commands::set_download_dir,
             commands::sync_deleted,
             commands::hub_linkable_tools,
             commands::hub_link_skill,

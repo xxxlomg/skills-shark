@@ -146,8 +146,27 @@ pub fn set_data_dir_for_test(p: PathBuf) {
 }
 
 /// 导入 skills 存放目录（PLAN-04 §3，Phase 1 接入扫描与 UI）
+/// PLAN-09 P5：若配置了自定义下载/导入目录则优先使用，否则沿用默认。
 pub fn imported_dir() -> PathBuf {
-    get_data_dir().join("imported")
+    effective_import_path(&load_config())
+}
+
+/// 由配置计算生效的下载/导入目录（自定义路径走 expand_path 展开，失败回退默认）
+fn effective_import_path(cfg: &AppConfig) -> PathBuf {
+    let default = get_data_dir().join("imported");
+    match cfg.download_dir.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => expand_path(s).unwrap_or(default),
+        _ => default,
+    }
+}
+
+/// PLAN-09 P5：保存自定义下载/导入目录（空串/None = 恢复默认）
+pub fn set_download_dir(dir: Option<String>) -> Result<(), String> {
+    let mut cfg = load_config();
+    cfg.download_dir = dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    save_config(&cfg)
 }
 
 /// C5（PLAN-06 §3.13）：创作 skills 存放目录（skill_new 模板模式落点）
@@ -251,6 +270,9 @@ pub struct AppConfig {
     /// 模块 A 发布侧：「我的技能仓库」本地路径 + remote（PLAN-06 §1.3）
     #[serde(default)]
     pub publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：技能下载/导入目录（None = 沿用默认 %APPDATA%\Skills Shark\imported）
+    #[serde(default)]
+    pub download_dir: Option<String>,
 }
 
 /// 发布用技能仓库配置（无敏感字段：凭据完全走用户 git 环境，§1.3）
@@ -270,6 +292,9 @@ struct RawConfig {
     llm: Option<LLMConfig>,
     #[serde(default)]
     publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：自定义下载/导入目录（缺失 = 沿用默认）
+    #[serde(default)]
+    download_dir: Option<String>,
 }
 
 fn default_llm() -> LLMConfig {
@@ -736,10 +761,11 @@ pub fn load_config() -> AppConfig {
 
     ensure_app_owned_entries(&mut tools);
     let publish_repo = raw.as_ref().and_then(|r| r.publish_repo.clone());
+    let download_dir = raw.as_ref().and_then(|r| r.download_dir.clone());
     let llm = raw
         .and_then(|r| r.llm)
         .unwrap_or_else(default_llm);
-    let cfg = AppConfig { tools, llm, publish_repo };
+    let cfg = AppConfig { tools, llm, publish_repo, download_dir };
     if migrated {
         let _ = save_config(&cfg); // 落盘固化迁移结果，下次启动走幂等路径
     }
@@ -776,6 +802,8 @@ pub struct MaskedConfig {
     pub _has_key: bool,
     /// 发布仓库配置（路径+URL，无敏感内容，原样返回）
     pub publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：当前生效的下载/导入目录
+    pub download_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -795,6 +823,7 @@ pub fn load_masked_config() -> MaskedConfig {
     } else {
         String::new()
     };
+    let download_dir = effective_import_path(&cfg).to_string_lossy().to_string();
     MaskedConfig {
         llm: MaskedLLM {
             api_key: masked_key,
@@ -803,6 +832,7 @@ pub fn load_masked_config() -> MaskedConfig {
         },
         _has_key: !cfg.llm.api_key.is_empty(),
         publish_repo: cfg.publish_repo,
+        download_dir,
     }
 }
 
@@ -844,6 +874,42 @@ mod tests {
         assert_eq!(expand_path("$SK_TEST_HOME").unwrap(), PathBuf::from(r"C:\fake-codex"));
         std::env::remove_var("SK_TEST_HOME");
         assert!(expand_path("$SK_TEST_HOME/skills").is_none()); // 未设置 → 候选失效
+    }
+
+    // ---- effective_import_path（P5 下载/导入目录）----
+
+    fn cfg_with_download(dir: Option<String>) -> AppConfig {
+        AppConfig {
+            tools: vec![],
+            llm: default_llm(),
+            publish_repo: None,
+            download_dir: dir,
+        }
+    }
+
+    #[test]
+    fn effective_import_path_default_and_custom() {
+        // None → 默认 %DATA%\imported
+        assert_eq!(
+            effective_import_path(&cfg_with_download(None)),
+            get_data_dir().join("imported")
+        );
+        // 空串/纯空白 → 默认
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some("  ".to_string()))),
+            get_data_dir().join("imported")
+        );
+        // 自定义绝对路径 → 原样使用
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some(r"D:\vault\skills".to_string()))),
+            PathBuf::from(r"D:\vault\skills")
+        );
+        // 带 ~ → 展开为 home 下路径
+        let home = dirs::home_dir().expect("home");
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some("~/downloads/skills".to_string()))),
+            home.join("downloads/skills")
+        );
     }
 
     #[test]
