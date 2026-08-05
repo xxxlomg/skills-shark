@@ -1,4 +1,4 @@
-import { Archive, GitBranch } from "lucide-react";
+import { Archive, GitBranch, PenLine } from "lucide-react";
 import { FolderCard } from "./FolderCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { GhostCard } from "@/components/common/GhostCard";
@@ -14,6 +14,8 @@ interface HomeViewProps {
   onSkillClick: (skill: Skill) => void;
   onGitImport: () => void;
   onZipImport: () => void;
+  /** C5：新建技能（模板模式） */
+  onNewSkill?: () => void;
 }
 
 export function HomeView({
@@ -24,6 +26,7 @@ export function HomeView({
   onSkillClick,
   onGitImport,
   onZipImport,
+  onNewSkill,
 }: HomeViewProps) {
   const totalSkills = groups.reduce((sum, g) => sum + g.skills.length, 0);
 
@@ -35,6 +38,12 @@ export function HomeView({
         title="技能库"
         subtitle={`${groups.length} 个分类 · ${totalSkills} 个技能 · 跨工具统一管理`}
       >
+        {onNewSkill && (
+          <button type="button" className="mbtn primary" onClick={onNewSkill}>
+            <PenLine className="h-3.5 w-3.5" />
+            新建技能
+          </button>
+        )}
         <LayoutToggle value={layout} onChange={onLayoutChange} />
       </SectionHead>
 

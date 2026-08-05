@@ -603,3 +603,95 @@ pub fn skill_validate(path: String, mode: Option<String>) -> Result<crate::valid
     };
     Ok(crate::validate::validate_dir(Path::new(&path), mode))
 }
+
+/// C5（PLAN-06 §3.13）：新建技能（模板模式）。落点固定 authored 自有源
+/// （双落点选择 C9 接）。name 走 hyphen-case（FM-04 同语义）+ ≤64；
+/// description 必填（§3.1：description 即触发器）。同名目录已存在 → Err("EXISTS")。
+#[tauri::command]
+pub fn skill_new(name: String, description: String) -> Result<serde_json::Value, String> {
+    let dir = create_skill_template(&crate::config::authored_dir(), &name, &description)?;
+    Ok(serde_json::json!({
+        "skill_dir": dir.to_string_lossy(),
+        "source_path": dir.join("SKILL.md").to_string_lossy(),
+    }))
+}
+
+/// C5 核心（纯函数，base_dir 参数化以便单测不碰全局 DATA_DIR）：
+/// 在 base 下创建 `<name>/SKILL.md` 模板。校验 name/description；
+/// 同名已存在 → Err("EXISTS")；写失败回滚半成品目录。
+pub(crate) fn create_skill_template(
+    base: &std::path::Path,
+    name: &str,
+    description: &str,
+) -> Result<std::path::PathBuf, String> {
+    let name = name.trim();
+    if !crate::validate::is_hyphen_case(name) {
+        return Err(
+            "name 必须为 hyphen-case：小写字母数字 + 连字符，不首尾连字符、不双连字符"
+                .to_string(),
+        );
+    }
+    if name.len() > 64 {
+        return Err("name 不得超过 64 字符".to_string());
+    }
+    let desc = description.trim();
+    if desc.is_empty() {
+        return Err("description 不能空——它是模型决定是否使用该技能的唯一依据".to_string());
+    }
+    let dir = base.join(name);
+    if dir.exists() {
+        return Err("EXISTS".to_string());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败：{e}"))?;
+    let md = format!(
+        "---\nname: {name}\ndescription: {desc}\n---\n\n# {name}\n\n{desc}\n\n## When to use\n\n- （补充触发场景；祈使句书写）\n\n## Instructions\n\n- （正文祈使句，不用第二人称）\n"
+    );
+    std::fs::write(dir.join("SKILL.md"), md).map_err(|e| {
+        // 回滚：写失败清掉半成品目录，不留脏状态
+        let _ = std::fs::remove_dir_all(&dir);
+        format!("写入 SKILL.md 失败：{e}")
+    })?;
+    Ok(dir)
+}
+
+// ---------------------------------------------------------------------------
+// C5 单测：skill_new 模板模式（不碰全局 DATA_DIR）
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod c5_tests {
+    use super::create_skill_template;
+
+    #[test]
+    fn creates_template_skill_and_validates_clean() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = create_skill_template(tmp.path(), "my-new-skill", "Do X when Y happens").unwrap();
+        let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
+        assert!(md.starts_with("---\nname: my-new-skill\ndescription: Do X when Y happens\n---"));
+        // 模板产物必须通过自家严格校验（不引入 FM 级 Error）
+        let rep = crate::validate::validate_dir(&dir, crate::validate::Mode::Strict);
+        assert!(
+            rep.issues.iter().all(|i| i.severity != crate::validate::Severity::Error),
+            "模板产物不应带 Error：{:?}",
+            rep.issues
+        );
+    }
+
+    #[test]
+    fn rejects_bad_name_and_empty_desc() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(create_skill_template(tmp.path(), "Bad_Name", "d").is_err());
+        assert!(create_skill_template(tmp.path(), "ok-name", "  ").is_err());
+        assert!(
+            create_skill_template(tmp.path(), &"a".repeat(65), "d").is_err(),
+            "65 字符 name 应拒"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        create_skill_template(tmp.path(), "dup-skill", "d").unwrap();
+        let err = create_skill_template(tmp.path(), "dup-skill", "d").unwrap_err();
+        assert_eq!(err, "EXISTS");
+    }
+}

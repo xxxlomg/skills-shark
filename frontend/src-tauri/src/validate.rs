@@ -225,7 +225,7 @@ struct RuleSpec {
     check: fn(&SkillFileset) -> Option<(String, String)>, // (message, hint)
 }
 
-fn is_hyphen_case(s: &str) -> bool {
+pub(crate) fn is_hyphen_case(s: &str) -> bool {
     !s.is_empty()
         && s
             .split('-')

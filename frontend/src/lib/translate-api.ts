@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getLLMConfig } from "./llm-config";
-import { isMockMode, MOCK_SKILLS } from "@/hooks/mockSkills";
+import { isMockMode, MOCK_SKILLS } from "@/mock";
 
 // ---------------------------------------------------------------------------
 // 工具函数
@@ -77,7 +77,7 @@ interface StreamResult {
  * 计入 max_tokens 预算——会出现「HTTP 200 + [DONE] 但 content 为空」。
  * 翻译任务显式禁用思考模式。
  */
-async function callLLMStream(
+export async function callLLMStream(
   prompt: string,
   apiKey: string,
   baseUrl: string,

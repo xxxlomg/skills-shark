@@ -15,6 +15,8 @@ import { HomeView } from "@/components/skill/HomeView";
 import { CategoryView } from "@/components/skill/CategoryView";
 import { PacksView } from "@/components/skill/PacksView";
 import { PackCreateDialog } from "@/components/skill/PackCreateDialog";
+import { NewSkillDialog } from "@/components/skill/NewSkillDialog";
+import { CreationView } from "@/components/skill/CreationView";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type { PackAction } from "@/components/skill/PackCard";
 import { DetailSheet } from "@/components/skill/DetailSheet";
@@ -111,6 +113,8 @@ function App() {
   // Skill Packs（PLAN-05 P1：真实数据）
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [packDialogOpen, setPackDialogOpen] = useState(false);
+  // C5：新建技能（模板模式）
+  const [newSkillOpen, setNewSkillOpen] = useState(false);
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PackInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -441,6 +445,8 @@ function App() {
               publishDisabledReason={publishDisabledReason}
               publishingId={publishingId}
             />
+          ) : tab === "create" ? (
+            <CreationView skills={skills} refresh={refresh} />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
           ) : loading ? (
@@ -464,6 +470,7 @@ function App() {
               onSkillClick={handleSkillClick}
               onGitImport={handleGitImport}
               onZipImport={handleZipImport}
+              onNewSkill={() => setNewSkillOpen(true)}
             />
           ) : currentGroup ? (
             <CategoryView
@@ -495,6 +502,7 @@ function App() {
         onTranslateDone={handleSync}
         onLinkSkill={(s) => openLinkDialog(s.id)}
         toolNames={toolNames}
+        onEdited={refresh}
       />
 
       {linkDialogOpen && (
@@ -537,6 +545,16 @@ function App() {
             toast.success(`Pack「${info.name}」已创建`);
             loadPacks();
             setTab("packs");
+          }}
+        />
+      )}
+
+      {newSkillOpen && (
+        <NewSkillDialog
+          open={newSkillOpen}
+          onClose={() => setNewSkillOpen(false)}
+          onCreated={() => {
+            refresh();
           }}
         />
       )}

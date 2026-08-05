@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { isMockMode } from "@/hooks/mockSkills";
+import { isMockMode } from "@/mock";
 import {
   Dialog,
   DialogContent,

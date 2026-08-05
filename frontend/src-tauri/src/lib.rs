@@ -1,3 +1,4 @@
+mod authoring;
 mod commands;
 mod config;
 mod git;
@@ -52,6 +53,11 @@ pub fn run() {
             commands::pack_install,
             commands::pack_delete,
             commands::skill_validate,
+            commands::skill_new,
+            authoring::skill_write_file,
+            authoring::skill_commit_draft,
+            authoring::openai_yaml_generate,
+            authoring::skill_edit_frontmatter,
             commands::git_status,
             commands::repo_browse,
             commands::repo_import_commit,

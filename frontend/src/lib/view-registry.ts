@@ -1,4 +1,4 @@
-import { Boxes, Package, FolderSymlink, type LucideIcon } from "lucide-react";
+import { Boxes, Package, FolderSymlink, PenLine, type LucideIcon } from "lucide-react";
 
 /**
  * 视图注册表（PLAN-06 §7.6 导航结构插槽）
@@ -12,7 +12,7 @@ import { Boxes, Package, FolderSymlink, type LucideIcon } from "lucide-react";
  * 入口位置（Tab / 顶栏按钮 / 详情页内）对视图实现透明。
  */
 
-export type ViewId = "lib" | "packs" | "hub";
+export type ViewId = "lib" | "packs" | "hub" | "create";
 
 export interface ViewDef {
   id: ViewId;
@@ -26,6 +26,7 @@ const REGISTRY: readonly ViewDef[] = [
   { id: "lib", label: "技能库", icon: Boxes, weight: 0 },
   { id: "packs", label: "Packs", icon: Package, weight: 10 },
   { id: "hub", label: "Hub", icon: FolderSymlink, weight: 20 },
+  { id: "create", label: "创作", icon: PenLine, weight: 30 },
 ] as const satisfies readonly ViewDef[];
 
 export const VIEW_REGISTRY: ViewDef[] = [...REGISTRY].sort(

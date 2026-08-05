@@ -7,6 +7,7 @@ import {
   Languages,
   Loader2,
   FolderSymlink,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,12 +21,15 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/common/MarkdownRenderer";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { ValidationBadges } from "@/components/skill/ValidationBadges";
 import { parseBilingual, type BilingualContent } from "@/lib/bilingual";
 import {
   translateSkill,
   loadTranslation,
 } from "@/lib/translate-api";
-import { readSkillFile } from "@/lib/api";
+import { readSkillFile, skillEditFrontmatter } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { loadLLMConfig } from "@/lib/llm-config";
 import type { Skill } from "@/hooks/useSkills";
 
@@ -41,6 +45,8 @@ interface DetailSheetProps {
   onLinkSkill?: (skill: Skill) => void;
   /** 工具 id → 显示名（B4 徽标用；缺省回退原始 id） */
   toolNames?: Record<string, string>;
+  /** C10：frontmatter 编辑后刷新列表 */
+  onEdited?: () => void;
 }
 
 export function DetailSheet({
@@ -51,6 +57,7 @@ export function DetailSheet({
   onTranslateDone,
   onLinkSkill,
   toolNames,
+  onEdited,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
   const [bilingual, setBilingual] = useState<BilingualContent | null>(null);
@@ -331,9 +338,18 @@ export function DetailSheet({
                 ))}
               </div>
             )}
+            {/* C3 兼容矩阵徽章（PLAN-06 §3.6）：诊断模式，2 平台 verdict */}
+            {!isDeleted && (
+              <div className="mt-1.5">
+                <ValidationBadges skillDir={skill.skill_dir} />
+              </div>
+            )}
             <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
               {displayDesc || "无描述"}
             </p>
+            {/* C10：frontmatter 表单编辑（与创作页共用 skill_edit_frontmatter，
+                未知字段字节级保留） */}
+            {!isDeleted && <MetaEditForm skill={skill} onSaved={onEdited} />}
           </div>
           <button
             type="button"
@@ -585,3 +601,66 @@ function BilingualView({
     </div>
   );
 }
+
+/** C10：frontmatter 元数据表单编辑（行级外科手术，未知字段字节级保留）。 */
+function MetaEditForm({
+  skill,
+  onSaved,
+}: {
+  skill: Skill;
+  onSaved?: () => void;
+}) {
+  const [openForm, setOpenForm] = useState(false);
+  const [name, setName] = useState(skill.name);
+  const [desc, setDesc] = useState(skill.description);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await skillEditFrontmatter(skill.skill_dir, [
+        { key: "name", op: "set", value: name },
+        { key: "description", op: "set", value: desc },
+      ]);
+      toast.success("frontmatter 已保存（未知字段保留）");
+      setOpenForm(false);
+      onSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-md border border-border/40 bg-glass-1 p-3">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+        onClick={() => setOpenForm((v) => !v)}
+      >
+        <Save className="h-3 w-3" />
+        {openForm ? "收起编辑" : "编辑 name / description（未知字段保留）"}
+      </button>
+      {openForm && (
+        <div className="mt-2 flex flex-col gap-2">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="h-7 font-mono text-xs"
+          />
+          <Input
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            className="h-7 text-xs"
+          />
+          <Button size="sm" className="self-end" disabled={busy} onClick={save}>
+            {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+            保存
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+

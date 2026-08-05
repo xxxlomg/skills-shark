@@ -11,7 +11,9 @@ import {
   MOCK_TOOLS,
   MOCK_LINKS,
   MOCK_SHELF,
-} from "@/hooks/mockSkills";
+  MOCK_SKILLS,
+  mockValidationReport,
+} from "@/mock";
 
 // ---------------------------------------------------------------------------
 // 类型（与 Rust 端对齐）
@@ -775,7 +777,171 @@ export function skillValidate(
   path: string,
   mode: ValidateMode = "diagnostic"
 ): Promise<ValidationReport> {
+  if (isMockMode()) {
+    // mock 路径形如 /mock/<scan>/<name>，末段即技能名；样本按名命中，未命中走全绿
+    const byName: Record<string, string> = {
+      "code-review": "c1",
+      "commit-msg": "c2",
+      docx: "o3",
+      "git-flow": "x2",
+    };
+    const seg = path.replace(/\\/g, "/").split("/").filter(Boolean);
+    const name = seg.length > 0 ? seg[seg.length - 1] : "";
+    return Promise.resolve(
+      mockValidationReport(byName[name] ?? "default", mode)
+    );
+  }
   return invoke<ValidationReport>("skill_validate", { path, mode });
+}
+
+/** C5（PLAN-06 §3.13）：新建技能（模板模式，落点 authored 自有源）。
+ *  同名已存在 → reject Error("EXISTS")。 */
+export function skillNew(params: {
+  name: string;
+  description: string;
+}): Promise<{ skill_dir: string; source_path: string }> {
+  if (isMockMode()) {
+    const name = params.name.trim();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+      return Promise.reject(
+        new Error("name 必须为 hyphen-case：小写字母数字 + 连字符，不首尾连字符、不双连字符")
+      );
+    }
+    if (MOCK_SKILLS.some((s) => s.tool_id === "authored" && s.name === name)) {
+      return Promise.reject(new Error("EXISTS"));
+    }
+    const skill: Skill = {
+      id: `authored|${name}`,
+      name,
+      folder_name: name,
+      description: params.description.trim(),
+      emoji: "✍️",
+      scan_label: "创作",
+      source_path: `/mock/authored/${name}/SKILL.md`,
+      skill_dir: `/mock/authored/${name}`,
+      tool_id: "authored",
+      is_representative: true,
+      other_sources: [],
+      hub_linked: false,
+      hub_link_id: null,
+      has_translation: false,
+      translation_lost: false,
+      title_zh: "",
+      description_zh: "",
+      source_deleted: false,
+      parent_collection: null,
+    };
+    MOCK_SKILLS.push(skill);
+    return Promise.resolve({
+      skill_dir: skill.skill_dir,
+      source_path: skill.source_path,
+    });
+  }
+  return invoke("skill_new", params);
+}
+
+/** C6/C9：草稿落盘（AI 链路复用；模板模式双落点也走这里，body 空 = 骨架）。 */
+export function skillCommitDraft(
+  location: string,
+  draft: { name: string; description: string; body?: string; references?: { rel_path: string; content: string }[] }
+): Promise<{ skill_dir: string; validation: ValidationReport }> {
+  if (isMockMode()) {
+    const name = draft.name.trim();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+      return Promise.reject(new Error("name 必须为 hyphen-case"));
+    }
+    if (MOCK_SKILLS.some((s) => s.name === name)) {
+      return Promise.reject(new Error("EXISTS"));
+    }
+    const label = location === "authored" ? "创作" : (MOCK_TOOLS.find((t) => t.id === location)?.name ?? location);
+    const dir = location === "authored" ? `/mock/authored/${name}` : `/mock/${location}/${name}`;
+    MOCK_SKILLS.push({
+      id: `${location}|${name}`,
+      name,
+      folder_name: name,
+      description: draft.description.trim(),
+      emoji: location === "authored" ? "✍️" : null,
+      scan_label: label,
+      source_path: `${dir}/SKILL.md`,
+      skill_dir: dir,
+      tool_id: location,
+      is_representative: true,
+      other_sources: [],
+      hub_linked: false,
+      hub_link_id: null,
+      has_translation: false,
+      translation_lost: false,
+      title_zh: "",
+      description_zh: "",
+      source_deleted: false,
+      parent_collection: null,
+    });
+    return Promise.resolve({
+      skill_dir: dir,
+      validation: mockValidationReport("default", "diagnostic"),
+    });
+  }
+  return invoke("skill_commit_draft", { location, draft });
+}
+
+/** C10：frontmatter 行级外科手术编辑（未知字段字节级保留）。 */
+export function skillEditFrontmatter(
+  skillDir: string,
+  edits: { key: string; op: "set" | "delete"; value?: string }[]
+): Promise<{ validation: ValidationReport }> {
+  if (isMockMode()) {
+    const skill = MOCK_SKILLS.find((s) => s.skill_dir === skillDir);
+    for (const e of edits) {
+      if (!skill || e.op !== "set") continue;
+      if (e.key === "name") skill.name = e.value ?? "";
+      if (e.key === "description") skill.description = e.value ?? "";
+    }
+    return Promise.resolve({ validation: mockValidationReport("default", "diagnostic") });
+  }
+  return invoke("skill_edit_frontmatter", { skillDir, edits });
+}
+
+/** C6：编辑器整文件写（rel_path 禁 .. / 绝对路径，后端归属闸）。 */
+export function skillWriteFile(
+  skillDir: string,
+  relPath: string,
+  content: string
+): Promise<void> {
+  if (isMockMode()) {
+    // mock 不落盘；rel 安全语义前端同步模拟（.. 拒绝）
+    if (relPath.includes("..")) return Promise.reject(new Error("rel_path 不允许 .. 逃逸"));
+    return Promise.resolve();
+  }
+  return invoke("skill_write_file", { skillDir, relPath, content });
+}
+
+/** C8：生成 agents/openai.yaml（默认拒覆盖；overwrite 备份 .bak）。 */
+export function openaiYamlGenerate(
+  skillDir: string,
+  fields: {
+    display_name: string;
+    short_description: string;
+    default_prompt: string;
+    icon_small?: string;
+    icon_large?: string;
+    brand_color?: string;
+  },
+  overwrite: boolean
+): Promise<{ path: string; warnings: string[] }> {
+  if (isMockMode()) {
+    if (!fields.default_prompt.includes("$skill-name")) {
+      return Promise.reject(new Error("default_prompt 必须包含 $skill-name（官方硬规则）"));
+    }
+    const len = [...fields.short_description].length;
+    if (len < 25 || len > 64) {
+      return Promise.reject(new Error(`short_description 须 25–64 字符（当前 ${len}）`));
+    }
+    return Promise.resolve({
+      path: `${skillDir}/agents/openai.yaml`,
+      warnings: fields.icon_small ? ["icon_small 资源不存在（不阻断）"] : [],
+    });
+  }
+  return invoke("openai_yaml_generate", { skillDir, fields, overwrite });
 }
 
 export type ImportSource =

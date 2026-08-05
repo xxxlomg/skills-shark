@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { MOCK_SKILLS, isMockMode } from "./mockSkills";
+import { MOCK_SKILLS, isMockMode } from "@/mock";
 
 export interface Skill {
   id: string;
@@ -91,7 +91,8 @@ export function useSkills() {
     try {
       if (isMockMode()) {
         await new Promise((r) => setTimeout(r, 250));
-        setSkills(MOCK_SKILLS);
+        // 浅拷贝新引用：MOCK_SKILLS 可变（CRUD mock 直接增删），同引用 React 不重渲染
+        setSkills([...MOCK_SKILLS]);
         return;
       }
       const data = await invoke<Skill[]>("scan_skills");
@@ -110,7 +111,7 @@ export function useSkills() {
     try {
       if (isMockMode()) {
         await new Promise((r) => setTimeout(r, 250));
-        setSkills(MOCK_SKILLS);
+        setSkills([...MOCK_SKILLS]);
         return;
       }
       const currentIds = skills.map((s) => s.id);

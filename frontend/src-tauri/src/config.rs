@@ -150,6 +150,11 @@ pub fn imported_dir() -> PathBuf {
     get_data_dir().join("imported")
 }
 
+/// C5（PLAN-06 §3.13）：创作 skills 存放目录（skill_new 模板模式落点）
+pub fn authored_dir() -> PathBuf {
+    get_data_dir().join("authored")
+}
+
 /// Skill Pack canonical 存储目录（PLAN-05 §2.4：packs/<id>/）
 pub fn packs_dir() -> PathBuf {
     get_data_dir().join("packs")
@@ -234,6 +239,8 @@ pub struct ToolEntry {
 /// 应用自有来源 id（scanner/translations 依赖其 name 契约）
 pub const TOOL_ID_BUILTIN: &str = "builtin";
 pub const TOOL_ID_IMPORTED: &str = "imported";
+/// C5（PLAN-06 §3.13）：创作自有源——skill_new 模板模式的唯一落点
+pub const TOOL_ID_AUTHORED: &str = "authored";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -275,7 +282,7 @@ fn default_llm() -> LLMConfig {
 
 /// builtin skills 目录（dev: 项目 skills/；release: 资源目录 skills/，
 /// 经 bundle.resources 打包，见 tauri.conf.json）
-fn builtin_skills_dir() -> PathBuf {
+pub(crate) fn builtin_skills_dir() -> PathBuf {
     if cfg!(debug_assertions) {
         project_root().join("skills")
     } else {
@@ -357,7 +364,8 @@ pub fn app_owned_path(tool_id: &str) -> Option<PathBuf> {
     match tool_id {
         TOOL_ID_BUILTIN => Some(builtin_skills_dir()),
         TOOL_ID_IMPORTED => Some(imported_dir()),
-        _ => None, // authored：C5 接入
+        TOOL_ID_AUTHORED => Some(authored_dir()),
+        _ => None,
     }
 }
 
@@ -426,6 +434,7 @@ pub fn default_tools() -> Vec<ToolEntry> {
     let mut tools = vec![app_owned_tool(TOOL_ID_BUILTIN, "builtin")];
     tools.extend(TOOL_REGISTRY.iter().map(|r| registry_entry(r, true)));
     tools.push(app_owned_tool(TOOL_ID_IMPORTED, "导入"));
+    tools.push(app_owned_tool(TOOL_ID_AUTHORED, "创作"));
     tools
 }
 
@@ -437,6 +446,9 @@ fn ensure_app_owned_entries(tools: &mut Vec<ToolEntry>) {
     }
     if !tools.iter().any(|t| t.id == TOOL_ID_IMPORTED) {
         tools.push(app_owned_tool(TOOL_ID_IMPORTED, "导入"));
+    }
+    if !tools.iter().any(|t| t.id == TOOL_ID_AUTHORED) {
+        tools.push(app_owned_tool(TOOL_ID_AUTHORED, "创作"));
     }
 }
 
@@ -896,8 +908,8 @@ mod tests {
     #[test]
     fn default_tools_full_registry_recognized() {
         let tools = default_tools();
-        // builtin + 10 注册表 + 导入
-        assert_eq!(tools.len(), 12);
+        // builtin + 10 注册表 + 导入 + 创作（C5）
+        assert_eq!(tools.len(), 13);
         assert_eq!(tools[0].id, "builtin");
         assert!(tools.iter().all(|t| t.enabled));
         let codex = tools.iter().find(|t| t.id == "codex").unwrap();
@@ -912,9 +924,9 @@ mod tests {
     fn ensure_app_owned_idempotent() {
         let mut tools = vec![];
         ensure_app_owned_entries(&mut tools);
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         ensure_app_owned_entries(&mut tools);
-        assert_eq!(tools.len(), 2, "重复调用不重复插入");
+        assert_eq!(tools.len(), 3, "重复调用不重复插入");
         assert_eq!(tools[0].id, "builtin", "builtin 恒在首位（扫描顺序锚点，B4 代表选取依赖）");
     }
 

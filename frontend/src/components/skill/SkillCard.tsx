@@ -64,6 +64,11 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
             <p className="truncate font-mono text-[11px] text-text-tertiary">
               {skill.name} · {skill.scan_label}
             </p>
+            {skill.tool_id === "authored" && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded border border-brand/40 bg-brand/10 px-1.5 py-px text-[10px] text-brand">
+                ✍️ authored
+              </span>
+            )}
             {skill.other_sources.length > 0 && (
               <div className="mt-1">
                 <InstallBadges skill={skill} toolNames={toolNames} />
@@ -103,6 +108,11 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
         <p className="relative z-[1] mt-[3px] font-mono text-[12px] text-text-tertiary">
           {skill.name} · {skill.scan_label}
         </p>
+        {skill.tool_id === "authored" && (
+          <span className="relative z-[1] mt-1.5 inline-flex items-center gap-1 rounded border border-brand/40 bg-brand/10 px-1.5 py-px text-[10px] text-brand">
+            ✍️ authored
+          </span>
+        )}
         {skill.other_sources.length > 0 && (
           <div className="relative z-[1] mt-2">
             <InstallBadges skill={skill} toolNames={toolNames} />

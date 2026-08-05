@@ -1,0 +1,23 @@
+/**
+ * Mock 数据统一出口（PLAN-06 约定：前端所有 mock 数据只存在于本文件夹）。
+ *
+ * - mode.ts         开关（?mock=1）
+ * - skills.ts       技能列表（MOCK_SKILLS）
+ * - packs.ts        技能包（MOCK_PACKS）
+ * - tools.ts        工具注册表（MOCK_TOOLS，可变数组支撑 CRUD 闭环）
+ * - links.ts        引用台账（MOCK_LINKS，可变数组）
+ * - translations.ts 原文/译文/双语样本
+ * - shelf.ts        模块 A 货架浏览样本（MOCK_SHELF）
+ * - validation.ts   C3 校验矩阵样本（mockValidationReport）
+ *
+ * 新增 mock 数据一律落本文件夹，禁止散落在组件或 hooks 里。
+ * 后端 mock/测试 fixture 归 frontend/src-tauri/mock/，与本目录互不引用。
+ */
+export { isMockMode } from "./mode";
+export { MOCK_SKILLS } from "./skills";
+export { MOCK_PACKS } from "./packs";
+export { MOCK_TOOLS } from "./tools";
+export { MOCK_LINKS } from "./links";
+export { MOCK_RAW, MOCK_TRANS, MOCK_BILINGUAL } from "./translations";
+export { MOCK_SHELF } from "./shelf";
+export { mockValidationReport } from "./validation";

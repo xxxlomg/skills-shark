@@ -215,13 +215,13 @@ repo_import_commit(token, selected_paths):
 
 ### 1.12 模块 A 子里程碑（5-7 天拆法）
 
-| # | 子里程碑 | 验收标准 | 预估 |
-|---|---|---|---|
-| A1 | `git.rs` 封装 + `git_status` | 单测：mock 假 git（PATH 注入）验证 NotInstalled/错误分类；真机：有/无 git 两态 UI 正确 | 1d |
-| A2 | `repo_setup` + 发布事务（到 commit 为止） | 本地仓库从 0 初始化；发布后 packs/ + index.json 内容正确；故意制造 index.json 损坏 → 中止且零改动 | 1.5d |
-| A3 | push + rebase 重试 + 回滚 | 双仓库对推复现 non-fast-forward → 自动 rebase 重试成功；断网 push → commit 保留 + 人话报错 | 1d |
-| A4 | `repo_browse` + 临时目录生命周期 | 浅克隆公开仓库渲染货架；杀进程重启 → tmp/ 清空；500MB 闸生效 | 1.5d |
-| A5 | `repo_import_commit` + 无 git 降级 | 勾选导入走 pack_import 全链路；卸 git 环境验证 archive 降级 | 1d |
+| # | 子里程碑 | 验收标准 | 预估 | 状态（2026-08-05 核对） |
+|---|---|---|---|---|
+| A1 | `git.rs` 封装 + `git_status` | 单测：mock 假 git（PATH 注入）验证 NotInstalled/错误分类；真机：有/无 git 两态 UI 正确 | 1d | 🔶 代码完成；真机两态 UI 未验收 |
+| A2 | `repo_setup` + 发布事务（到 commit 为止） | 本地仓库从 0 初始化；发布后 packs/ + index.json 内容正确；故意制造 index.json 损坏 → 中止且零改动 | 1.5d | 🔶 代码完成；损坏中止/零改动未验收 |
+| A3 | push + rebase 重试 + 回滚 | 双仓库对推复现 non-fast-forward → 自动 rebase 重试成功；断网 push → commit 保留 + 人话报错 | 1d | 🔶 代码完成；真机 rebase 重试/断网场景未验收 |
+| A4 | `repo_browse` + 临时目录生命周期 | 浅克隆公开仓库渲染货架；杀进程重启 → tmp/ 清空；500MB 闸生效 | 1.5d | 🔶 代码完成；tmp 清理/500MB 闸未验收 |
+| A5 | `repo_import_commit` + 无 git 降级 | 勾选导入走 pack_import 全链路；卸 git 环境验证 archive 降级 | 1d | 🔶 代码完成；无 git archive 降级未验收 |
 
 ---
 
@@ -403,13 +403,13 @@ pub struct Skill {
 
 ### 2.11 模块 B 子里程碑（5-7 天拆法）
 
-| # | 子里程碑 | 验收标准 | 预估 |
-|---|---|---|---|
-| B1 | tools 注册表 + scan_paths 迁移 | 旧 config 自动迁移不丢自定义路径；$CODEX_HOME/~ 展开正确；内置注册表工具全部识别 | 1d |
-| B2 | hub.rs 链接层 + junction 单测 | Windows junction/POSIX symlink 建删往返；remove_link 对真实目录必须报错（防误删单测） | 1.5d |
-| B3 | links.json 台账 + 断链检测 | 手工删源 → hub_links_status 报 broken → 重建链接恢复 | 1d |
-| B4 | 聚合扫描 + Skill 结构 | 同一技能链接进 2 工具 → 一张卡 + 两枚徽标；译文绑定不丢；代表翻转提示可迁移 | 1.5d |
-| B5 | Hub 页命令接线 + 转副本 | 全模式（link/copy/解除/转副本/集合级）手工走查一遍；导航结构走 §7.6 插槽（视图注册表数据驱动，不硬编码 TabNav——IA 由 Paw 交互稿覆盖） | 1.5d |
+| # | 子里程碑 | 验收标准 | 预估 | 状态（2026-08-05 核对） |
+|---|---|---|---|---|
+| B1 | tools 注册表 + scan_paths 迁移 | 旧 config 自动迁移不丢自定义路径；$CODEX_HOME/~ 展开正确；内置注册表工具全部识别 | 1d | ✅ 完成（6ff97c3） |
+| B2 | hub.rs 链接层 + junction 单测 | Windows junction/POSIX symlink 建删往返；remove_link 对真实目录必须报错（防误删单测） | 1.5d | ✅ 完成（5a2e607） |
+| B3 | links.json 台账 + 断链检测 | 手工删源 → hub_links_status 报 broken → 重建链接恢复 | 1d | ✅ 完成（efaffab） |
+| B4 | 聚合扫描 + Skill 结构 | 同一技能链接进 2 工具 → 一张卡 + 两枚徽标；译文绑定不丢；代表翻转提示可迁移 | 1.5d | ✅ 完成（19dd7c9 + bc16f46 徽标） |
+| B5 | Hub 页命令接线 + 转副本 | 全模式（link/copy/解除/转副本/集合级）手工走查一遍；导航结构走 §7.6 插槽（视图注册表数据驱动，不硬编码 TabNav——IA 由 Paw 交互稿覆盖） | 1.5d | ✅ 完成（09e8c05/20e67cd/1118538/f6310a1 收尾，干净实例走查过） |
 
 ---
 
@@ -556,12 +556,12 @@ create_skill_pack 新增参数 force: bool = false
 |---|---|---|
 | `skill_validate` | `(path, mode: strict|diagnostic) -> ValidationReport` | 独立可用（创作页实时校验也走它） |
 
-| # | 子里程碑 | 验收标准 | 预估 |
-|---|---|---|---|
-| C1 | validate.rs 骨架 + FM 规则组 | 对 §3.1 两份官方原件做 fixture：Claude 版全绿、Codex 版按预期报差异项 | 1.5d |
-| C2 | CL/CX 规则组 + 双轨模式 | 构造未知字段样本：诊断=提示、严格=Error；fixture 回归 | 1d |
-| C3 | 矩阵输出 + skill_validate 接线 | 前端徽章按矩阵渲染（本里程碑含最小 UI） | 1d |
-| C4 | pack_create 集成 + force 逃生门 | 带错技能打包被拒并出清单；force 后 warnings 入 pack.json 可查 | 1d |
+| # | 子里程碑 | 验收标准 | 预估 | 状态（2026-08-05 核对） |
+|---|---|---|---|---|
+| C1 | validate.rs 骨架 + FM 规则组 | 对 §3.1 两份官方原件做 fixture：Claude 版全绿、Codex 版按预期报差异项 | 1.5d | ✅ 完成（f6310a1，fixture 回归在 109 单测内） |
+| C2 | CL/CX 规则组 + 双轨模式 | 构造未知字段样本：诊断=提示、严格=Error；fixture 回归 | 1d | ✅ 完成（71c07e0） |
+| C3 | 矩阵输出 + skill_validate 接线 | 前端徽章按矩阵渲染（本里程碑含最小 UI） | 1d | 🔶→✅ 代码+前端接线完成（2026-08-05）：ValidationBadges 组件入 DetailSheet，mock 四样本三态走查过、后端 serde 形状逐字段核对一致；**真机验收随 app 重启一并做** |
+| C4 | pack_create 集成 + force 逃生门 | 带错技能打包被拒并出清单；force 后 warnings 入 pack.json 可查 | 1d | 🔶→✅ 代码+前端接线完成（2026-08-05）：后端单测含 force 写 warnings/export 透传；mock 走查拒绝清单+「仍要打包」闭环过；**真机抽验随 app 重启一并做** |
 
 ### 3.9 两种落地位置的路径处理（Pal 细化）
 
@@ -634,14 +634,14 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 
 ### 3.13 模块 C 子里程碑（6 天拆法）
 
-| # | 子里程碑 | 验收标准 | 预估 |
-|---|---|---|---|
-| C5 | authored 源 + skill_new 模板模式 | 新建→出现在扫描（authored 徽标）→可被引用到工具 | 1d |
-| C6 | skill_commit_draft + skill_write_file（含路径归属安全） | 路径逃逸用例（../、绝对路径、未注册目录）全部被拒 | 1d |
-| C7 | authoring-api.ts 骨架 + prompt 插槽 | 用占位 prompt 跑通"输入主题→流式生成→落盘→校验报告"全链路 | 1.5d |
-| C8 | openai.yaml emitter + 约束校验 | 格式快照测试（引号/缩进/$skill-name 断言）；覆盖写备份生效 | 1d |
-| C9 | 创作页 UI 接线（表单/编辑/双落点选择） | 手工走查：模板 + AI 两模式 × 两落点；导航走 §7.6 插槽（不硬编码 TabNav） | 1.5d |
-| C10 | **结构化编辑：frontmatter 表单化 + YAML round-trip 保留未知字段**（§3.14，修订 R2-b） | **验收硬标准：编辑含未知字段的第三方 SKILL.md，保存后未知字段逐字保留**（fixture 字节级 diff 测试）；创作页与详情页表单编辑共用同一后端命令 | 1.5d |
+| # | 子里程碑 | 验收标准 | 预估 | 状态（2026-08-05 核对） |
+|---|---|---|---|---|
+| C5 | authored 源 + skill_new 模板模式 | 新建→出现在扫描（authored 徽标）→可被引用到工具 | 1d | 🔶→✅ 代码+前端接线完成（2026-08-05）：authored 源注册（default/ensure/路径三处）+ skill_new 纯函数核心 + 3 单测；前端 NewSkillDialog + 技能库入口 + authored 徽标；mock 走查全闭环（新建→创作分类→徽标→同名拒→LinkDialog 可引用）；**真机验收随 app 重启一并做** |
+| C6 | skill_commit_draft + skill_write_file（含路径归属安全） | 路径逃逸用例（../、绝对路径、未注册目录）全部被拒 | 1d | ✅ 完成（2026-08-05）：authoring.rs 归属基线（roots 参数化）+ 6 单测全拒逃逸用例（`../`/绝对/未注册/ sneak `../`）+ 正常嵌套写入通过；命令已注册 |
+| C7 | authoring-api.ts 骨架 + prompt 插槽 | 用占位 prompt 跑通"输入主题→流式生成→落盘→校验报告"全链路 | 1.5d | 🔶→✅ 骨架+链路完成（2026-08-05）：authoring-api.ts（prompt 插槽/parseDraft/generateAndCommit）+ callLLMStream 导出复用 + NewSkillDialog AI 模式（主题+落点双选+流式预览）；mock 全链路走查过（落盘→校验全绿→扫描可见）；真 LLM 链路随 app 重启+API Key 验收 |
+| C8 | openai.yaml emitter + 约束校验 | 格式快照测试（引号/缩进/$skill-name 断言）；覆盖写备份生效 | 1d | ✅ 完成（2026-08-05）：authoring.rs emitter（官方顺序/引号/2 空格缩进/转义）+ 6 单测（快照断言、$skill-name 拒、25–64 拒、overwrite .bak、裸 icon 归一 + warn、归属闸）；官方 openai_yaml.md 入后端 mock 快照；前端触发入口随 C9 创作页接 |
+| C9 | 创作页 UI 接线（表单/编辑/双落点选择） | 手工走查：模板 + AI 两模式 × 两落点；导航走 §7.6 插槽（不硬编码 TabNav） | 1.5d | 🔶→✅ 完成（2026-08-05）：view-registry 注册 create（weight 30，导航自动渲染）+ CreationView（authored 列表+frontmatter 表单+正文编辑+Codex 三件套）+ NewSkillDialog 双落点共用；mock 走查过（模板×authored/claude-code、AI 链路、C8 拒+过）；**真机走查随 app 重启** |
+| C10 | **结构化编辑：frontmatter 表单化 + YAML round-trip 保留未知字段**（§3.14，修订 R2-b） | **验收硬标准：编辑含未知字段的第三方 SKILL.md，保存后未知字段逐字保留**（fixture 字节级 diff 测试）；创作页与详情页表单编辑共用同一后端命令 | 1.5d | ✅ 完成（2026-08-05）：authoring.rs edit_frontmatter_checked 行级外科手术（零新依赖）+ 5 单测（含未知字段/注释/多行块字节级 diff fixture，硬标准达标）+ skill_edit_frontmatter 命令；创作页 CreationView 与详情页 MetaEditForm 共用同一命令，mock 双入口走查过 |
 
 ### 3.14 结构化编辑：frontmatter 表单化 + round-trip 保真（修订 R2-b 新增）
 
@@ -706,13 +706,13 @@ fn emit_openai_yaml(f: &OpenAiFields) -> String;
 
 ### 5.2 发布节奏（v0.2.0，W1–W5）
 
-| 周 | 交付 |
-|---|---|
-| W1 | 模块 B 前半：tools 注册表迁移（B1）+ 链接层与台账（B2/B3） |
-| W2 | 模块 B 后半：聚合扫描（B4）+ Hub 页接线（B5）；校验器骨架（C1/C2） |
-| W3 | 校验器收尾（C3/C4）+ 创作套件后端（C5/C6） |
-| W4 | 创作 AI 链路（C7-C9）+ 结构化编辑（C10，修订 R2-b）；Git 分发（A1-A3） |
-| W5（缓冲） | Git 分发收尾（A4/A5）+ 全链路走查：创作→校验→引用→发布→他人导入 |
+| 周 | 交付 | 状态（2026-08-05 核对） |
+|---|---|---|
+| W1 | 模块 B 前半：tools 注册表迁移（B1）+ 链接层与台账（B2/B3） | ✅ 完成 |
+| W2 | 模块 B 后半：聚合扫描（B4）+ Hub 页接线（B5）；校验器骨架（C1/C2） | ✅ 完成（B4/B5/C1/C2） |
+| W3 | 校验器收尾（C3/C4）+ 创作套件后端（C5/C6） | ✅ C3-C6 全部代码+测试完成（mock 验收过），真机部分随 app 重启 |
+| W4 | 创作 AI 链路（C7-C9）+ 结构化编辑（C10，修订 R2-b）；Git 分发（A1-A3） | 🔶 C7-C10 全部代码+测试完成（mock 验收过，真机随 app 重启）；A1-A3 代码完成待真机验收 |
+| W5（缓冲） | Git 分发收尾（A4/A5）+ 全链路走查：创作→校验→引用→发布→他人导入 | 🔶 部分：A4/A5 代码完成待真机验收、全链路走查未开始 |
 
 **v0.2 验收场景（一句话）**：用户在 App 里创作一个 skill，校验通过，引用进自己的 Claude Code 与 Codex CLI，打包发布到自己的 GitHub 仓库；朋友粘贴仓库 URL，导入、安装、引用进自己的工具——全程无人工运维介入。
 
@@ -813,6 +813,14 @@ Hub 页与创作入口的信息架构（新 Tab？顶栏入口？）由 Paw 交�
 - TabNav/顶栏组件只消费注册表，不感知具体业务视图——交互稿定稿后改注册表数据即接入，**不重写导航组件**；
 - Hub 页与创作页作为普通视图注册，入口位置（Tab / 顶栏按钮 / 详情页内）对视图实现透明。
 
+### 7.7 mock 数据管理约定（2026-08-05，boss 指定）
+
+mock 数据前后端**分治、各自单目录收口**，禁止散落在组件/hooks/测试内联之外的任何位置：
+
+- **前端**：`frontend/src/mock/`（index.ts 统一出口；按域拆分 skills/packs/tools/links/translations/shelf/validation；`?mock=1` 开关在 mode.ts）。新增 mock 数据一律落此目录；
+- **后端**：`frontend/src-tauri/mock/`（样例技能 + 官方原件快照 + README 登记预期行为；测试与验收只读不写）；
+- 两目录**互不引用**；真实用户数据（`Roaming\Skills Shark`）永不进 mock 目录。
+
 ---
 
 ## 8. 拍板记录（2026-08-04，boss）
@@ -823,6 +831,8 @@ Hub 页与创作入口的信息架构（新 Tab？顶栏入口？）由 Paw 交�
 | B2 | Python 内置 | ✅ 不内置，Rust 原生实现（boss："rust 目前足够强大"）；重启条件见 §3.3 |
 | B3 | 排序 | ✅ Hub 引用 → 校验器 → 创作套件 → Git 分发 |
 | B4 | 使用统计范围 | ⏸️ **待定**，需更深入讨论分析；§2.3 分层方案作为讨论底稿，暂不按任何一档开工；本期实现边界锁死为 §2.9（仅安装广度展示） |
+| B5（2026-08-05 补记） | mock 数据管理 | ✅ 前后端分治单目录收口（§7.7）：前端 `src/mock/`、后端 `src-tauri/mock/` |
+| B6（2026-08-05 补记） | 孤儿目录 `AppData\Skills Shark` | ✅ boss 自行删除，app 侧不做合并/迁移（3a2e5f3 已移除孤儿机制）；该项任务清单标记完成 |
 | B5 | 开发分支 | ✅ `v0.2.0`，已从 main 切出 |
 
 **分工**：Pal 在本文档基础上补充详细技术方案（各模块实现细节、命令清单、数据模型）→ ✅ 已完成（本版本，2026-08-04）；Paw 出创作向导交互稿 + AI 生成 prompt 初稿（插槽见 §3.11）+ 校验文案。
