@@ -15,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -39,6 +41,7 @@ import {
   type Skill,
   type ToolInfo,
 } from "@/lib/api";
+import { generateSkillMdStream } from "@/lib/authoring-api";
 import { isMockMode, MOCK_TOOLS } from "@/mock";
 import {
   EMPTY_DRAFT,
@@ -62,6 +65,7 @@ import {
  */
 interface AuthoringWorkbenchProps {
   skill: Skill | null; // null = 新建态
+  skills: Skill[]; // 内容参考候选（全局扫描结果，按 scan_label 分组）
   refresh: () => void;
   onExit: () => void;
 }
@@ -100,7 +104,7 @@ function StepBadge({ n }: { n: number }) {
   );
 }
 
-export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenchProps) {
+export function AuthoringWorkbench({ skill, skills, refresh, onExit }: AuthoringWorkbenchProps) {
   const [current, setCurrent] = useState<Skill | null>(skill);
   const draftId = current?.id ?? "new";
 
@@ -114,6 +118,20 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
   const [busy, setBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
   const [optOpen, setOptOpen] = useState(false);
+
+  // W3 内容参考：候选按 scan_label 分组，只读通道复用 readSkillFile
+  const [refSkillId, setRefSkillId] = useState("");
+  const [refContent, setRefContent] = useState("");
+
+  // W3 AI 规划：直出 SKILL.md 原文；流式期间禁用应用
+  const [topic, setTopic] = useState("");
+  const [stream, setStream] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [streamDone, setStreamDone] = useState(false);
+  const [confirmApply, setConfirmApply] = useState(false);
+  // 60s 未保存淡入「没灵感？试试 AI 创作」；保存成功重置
+  const [aiHint, setAiHint] = useState(false);
+  const [hintTick, setHintTick] = useState(0);
 
   const dirtyRef = useRef(false);
   const setDirtyAll = useCallback((d: boolean) => {
@@ -156,6 +174,79 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
       .then((ts) => setTools(ts.filter((t) => !t.app_owned && t.enabled)))
       .catch(() => setTools([]));
   }, [current]);
+
+  // W3：内容参考分组（全局 skills 按 scan_label）
+  const refGroups = useMemo(() => {
+    const m = new Map<string, Skill[]>();
+    for (const s of skills) {
+      const k = s.scan_label || "未分类";
+      const arr = m.get(k) ?? [];
+      arr.push(s);
+      m.set(k, arr);
+    }
+    return [...m.entries()];
+  }, [skills]);
+
+  // W3：选中参考 → 只读加载 SKILL.md
+  useEffect(() => {
+    if (!refSkillId) return;
+    const s = skills.find((x) => x.id === refSkillId);
+    if (!s) return;
+    readSkillFile(s.source_path)
+      .then(setRefContent)
+      .catch(() => setRefContent("（读取失败）"));
+  }, [refSkillId, skills]);
+
+  // W3：60s 未保存淡入 AI 引导；保存成功重置计时
+  useEffect(() => {
+    setAiHint(false);
+    const t = setTimeout(() => setAiHint(true), 60_000);
+    return () => clearTimeout(t);
+  }, [hintTick]);
+
+  // W3：AI 规划流式生成（直出 SKILL.md 原文）
+  const runAI = async () => {
+    if (!topic.trim() || streaming) return;
+    setStreaming(true);
+    setStreamDone(false);
+    setStream("");
+    try {
+      const { finishReason } = await generateSkillMdStream(
+        topic.trim(),
+        draft,
+        (d) => setStream((s) => s + d)
+      );
+      if (finishReason === "length") {
+        toast.warning("模型输出被截断——换更短的主题重试");
+      } else {
+        setStreamDone(true);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStreaming(false);
+    }
+  };
+
+  // W3：应用到正文——frontmatter 的 name/description 同步回表单
+  const applyStream = () => {
+    const parts = splitFrontmatter(stream);
+    if (parts) {
+      const mName = parts.fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+      const mDesc = parts.fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+      patch({
+        body: parts.body,
+        ...(mDesc ? { desc: mDesc } : {}),
+        ...(!current && mName ? { name: mName } : {}),
+      });
+    } else {
+      patch({ body: stream });
+      toast.warning("流式输出无 frontmatter——全文当 body 应用");
+    }
+    setStream("");
+    setStreamDone(false);
+    toast.success("已应用到正文");
+  };
 
   // 草稿兜底：dirty 变更同步写 localStorage（KB 级，无窗口）
   const patch = useCallback(
@@ -219,6 +310,7 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
         }
         clearDraft("new");
         setDirtyAll(false);
+        setHintTick((t) => t + 1);
         toast.success(`技能 ${name} 已创建（${location}）`);
         refresh();
         // 切编辑态：拉最新扫描找新技能
@@ -245,6 +337,7 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
         }
         clearDraft(current.id);
         setDirtyAll(false);
+        setHintTick((t) => t + 1);
         toast.success("已保存（Ctrl+S 等效）");
         refresh();
       }
@@ -483,6 +576,88 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
           </div>
 
           <div className="glass-card p-5">
+            <h3 className="text-[13px] font-semibold text-text-primary">内容参考</h3>
+            <p className="mt-1 text-[11px] text-text-tertiary">
+              看看成熟技能怎么写——只读，不进草稿。
+            </p>
+            <div className="mt-3">
+              <Select
+                value={refSkillId === "" ? undefined : refSkillId}
+                onValueChange={setRefSkillId}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue placeholder="选一个技能查看其 SKILL.md" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {refGroups.map(([label, arr]) => (
+                    <SelectGroup key={label}>
+                      <SelectLabel>{label}</SelectLabel>
+                      {arr.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {refContent && (
+              <pre className="mt-2 max-h-56 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-2.5 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-text-secondary">
+                {refContent}
+              </pre>
+            )}
+          </div>
+
+          <div className="glass-card p-5">
+            <h3 className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              AI 规划
+              {aiHint && (
+                <span className="animate-fade-in text-[10px] font-normal text-primary">
+                  没灵感？试试 AI 创作
+                </span>
+              )}
+            </h3>
+            <p className="mt-1 text-[11px] text-text-tertiary">
+              左栏表单内容会作为上下文喂给模型。
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="例：为 Spring Boot 项目生成 changelog"
+                className="h-8 text-xs"
+              />
+              <Button
+                size="sm"
+                className="shrink-0"
+                disabled={!topic.trim() || streaming}
+                onClick={() => void runAI()}
+              >
+                {streaming && <Loader2 className="h-3 w-3 animate-spin" />}
+                生成
+              </Button>
+            </div>
+            {stream && (
+              <pre className="mt-2 max-h-48 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-2.5 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap text-text-secondary">
+                {stream}
+                {streaming && <span className="animate-pulse">▍</span>}
+              </pre>
+            )}
+            {streamDone && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                onClick={() => (draft.body.trim() ? setConfirmApply(true) : applyStream())}
+              >
+                应用到正文
+              </Button>
+            )}
+          </div>
+
+          <div className="glass-card p-5">
             <h3 className="mb-2.5 text-[13px] font-semibold text-text-primary">写作准则</h3>
             <ul className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-text-tertiary">
               <li>· description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用</li>
@@ -540,6 +715,32 @@ export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenc
           </div>
         </div>
       </div>
+
+      {/* 应用 AI 结果确认（body 非空时） */}
+      <Dialog open={confirmApply} onOpenChange={(o) => !o && setConfirmApply(false)}>
+        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle>替换当前正文？</DialogTitle>
+          </DialogHeader>
+          <p className="p-1 text-xs leading-relaxed text-muted-foreground">
+            应用 AI 结果会替换当前 body（草稿兜底仍保留旧内容，可恢复）。
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmApply(false)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                applyStream();
+                setConfirmApply(false);
+              }}
+            >
+              替换
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 返回保护 */}
       <Dialog open={confirmExit} onOpenChange={(o) => !o && setConfirmExit(false)}>

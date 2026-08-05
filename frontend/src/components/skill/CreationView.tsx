@@ -178,6 +178,7 @@ export function CreationView({
       <AuthoringWorkbench
         key={wb.skill?.id ?? "new"}
         skill={wb.skill}
+        skills={skills}
         refresh={refresh}
         onExit={() => {
           setWb(null);
