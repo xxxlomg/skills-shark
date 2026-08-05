@@ -9,4 +9,5 @@ export const MOCK_TOOLS: ToolInfo[] = [
   { id: "opencode", name: "OpenCode", builtin: true, app_owned: false, enabled: true, linkable: true, paths: ["~/.opencode/skills", "~/.config/opencode/skills"], path_exists: [true, false], link_count: 0 },
   { id: "custom-my-lab", name: "My Lab", builtin: false, app_owned: false, enabled: true, linkable: true, paths: ["D:\\vault\\skills"], path_exists: [true], link_count: 0 },
   { id: "imported", name: "导入", builtin: true, app_owned: true, enabled: true, linkable: false, paths: [], path_exists: [], link_count: 0 },
+  { id: "authored", name: "创作库", builtin: true, app_owned: true, enabled: true, linkable: false, paths: [], path_exists: [], link_count: 0 },
 ];

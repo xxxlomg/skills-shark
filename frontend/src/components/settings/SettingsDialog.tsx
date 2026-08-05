@@ -619,15 +619,18 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                       value={repoLocalPath}
                       onChange={(e) => setRepoLocalPath(e.target.value)}
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRepoPick}
-                      className="shrink-0"
-                    >
-                      选择…
-                    </Button>
+                    <Tip label="选择文件夹">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRepoPick}
+                        className="shrink-0 px-2.5"
+                        aria-label="选择文件夹"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </Button>
+                    </Tip>
                   </div>
                 </div>
 

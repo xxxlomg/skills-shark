@@ -606,10 +606,16 @@ pub fn skill_validate(path: String, mode: Option<String>) -> Result<crate::valid
 
 /// C5（PLAN-06 §3.13）：新建技能（模板模式）。落点固定 authored 自有源
 /// （双落点选择 C9 接）。name 走 hyphen-case（FM-04 同语义）+ ≤64；
-/// description 必填（§3.1：description 即触发器）。同名目录已存在 → Err("EXISTS")。
+/// description 可空——空则补占位符（创作习惯：先命名后补描述，UI 反馈 2026-08-05）。
+/// 同名目录已存在 → Err("EXISTS")。
 #[tauri::command]
 pub fn skill_new(name: String, description: String) -> Result<serde_json::Value, String> {
-    let dir = create_skill_template(&crate::config::authored_dir(), &name, &description)?;
+    let desc = if description.trim().is_empty() {
+        crate::authoring::DESC_PLACEHOLDER.to_string()
+    } else {
+        description
+    };
+    let dir = create_skill_template(&crate::config::authored_dir(), &name, &desc)?;
     Ok(serde_json::json!({
         "skill_dir": dir.to_string_lossy(),
         "source_path": dir.join("SKILL.md").to_string_lossy(),

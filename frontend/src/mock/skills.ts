@@ -72,4 +72,7 @@ export const MOCK_SKILLS: Skill[] = [
   mk("x4", "perf-profiler", "⚡", "定位热点函数与内存泄漏", "Codex", { zh: "性能剖析", trans: true }),
   // B4 聚合样本：commit-msg 同名双装，此条为非代表副本（UI 折叠，仅 sync_deleted 保留）
   mk("x5", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Codex", { zh: "提交信息生成", trans: true, tool: "codex", reps: false, others: ["claude-code"] }),
+
+  // authored（创作页卡片样本，UI 反馈 2026-08-05）
+  mk("a1", "my-draft-skill", "🌱", "草稿期技能：先命名后补描述的创作样本", "Authored", { zh: "我的草稿", tool: "authored" }),
 ];

@@ -8,6 +8,10 @@
 
 use std::path::{Component, Path, PathBuf};
 
+/// 创作习惯占位符（UI 反馈 2026-08-05：先命名后补描述）。
+/// 命令层空 description 补此值；纯函数核心仍硬校验非空。
+pub const DESC_PLACEHOLDER: &str = "TODO：补充「做什么 + 何时用」——模型只凭它决定是否使用";
+
 /// 词法规范化（不碰文件系统）：解析 `.`/`..`，用于尚不存在目录的归属判定。
 fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
@@ -135,8 +139,13 @@ pub fn skill_commit_draft(
     } else {
         resolve_tool_base(&location)?
     };
-    // SKILL.md 走模板核心（name/desc 校验 + EXISTS 拒）
-    let dir = crate::commands::create_skill_template(&base, &draft.name, &draft.description)?;
+    // SKILL.md 走模板核心（name/desc 校验 + EXISTS 拒）；空描述补占位符
+    let desc = if draft.description.trim().is_empty() {
+        DESC_PLACEHOLDER.to_string()
+    } else {
+        draft.description.clone()
+    };
+    let dir = crate::commands::create_skill_template(&base, &draft.name, &desc)?;
     // 正文覆盖模板骨架
     if !draft.body.trim().is_empty() {
         let md = format!(

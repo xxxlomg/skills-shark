@@ -51,21 +51,23 @@ export function HomeView({
         <EmptyState />
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {/* 导入入口前置：技能再多也无需滚动即可触达 */}
-          <GhostCard
-            icon={<Archive className="h-[22px] w-[22px]" />}
-            title="导入本地 Zip"
-            subtitle="选择或拖拽 zip 到窗口"
-            index={idx++}
-            onClick={onZipImport}
-          />
-          <GhostCard
-            icon={<GitBranch className="h-[22px] w-[22px]" />}
-            title="从 Git 仓库导入"
-            subtitle="GitHub / Gitee 地址"
-            index={idx++}
-            onClick={onGitImport}
-          />
+          {/* 导入入口独占一行（grid）：与数据卡片分行，消除割裂感 */}
+          <div className="col-span-full grid gap-5 sm:grid-cols-2">
+            <GhostCard
+              icon={<Archive className="h-[22px] w-[22px]" />}
+              title="导入本地 Zip"
+              subtitle="选择或拖拽 zip 到窗口"
+              index={idx++}
+              onClick={onZipImport}
+            />
+            <GhostCard
+              icon={<GitBranch className="h-[22px] w-[22px]" />}
+              title="从 Git 仓库导入"
+              subtitle="GitHub / Gitee 地址"
+              index={idx++}
+              onClick={onGitImport}
+            />
+          </div>
           {groups.map((g) => (
             <FolderCard
               key={g.label}

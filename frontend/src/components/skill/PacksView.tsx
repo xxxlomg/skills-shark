@@ -96,9 +96,11 @@ export function PacksView({
         </div>
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {/* 导入入口前置：Pack 再多也无需滚动即可触达 */}
-          {repoGhost}
-          {importGhost}
+          {/* 导入入口独占一行（grid）：与数据卡片分行，消除割裂感 */}
+          <div className="col-span-full grid gap-5 sm:grid-cols-2">
+            {repoGhost}
+            {importGhost}
+          </div>
           {packs.map((p) => (
             <PackCard
               key={p.id}

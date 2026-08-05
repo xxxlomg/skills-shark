@@ -1,263 +1,293 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, PenLine, Save, Sparkles } from "lucide-react";
+import { useMemo, useState, type CSSProperties } from "react";
+import { PenLine, Pencil, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NewSkillDialog } from "@/components/skill/NewSkillDialog";
 import {
-  readSkillFile,
-  skillEditFrontmatter,
-  skillWriteFile,
-  openaiYamlGenerate,
-  type Skill,
-} from "@/lib/api";
-import { isMockMode } from "@/mock";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SectionHead } from "@/components/common/SectionHead";
+import { GhostCard } from "@/components/common/GhostCard";
+import { Tip } from "@/components/common/Tip";
+import { LayoutToggle } from "./LayoutToggle";
+import { NewSkillDialog } from "./NewSkillDialog";
+import { CreationEditDialog } from "./CreationEditDialog";
+import { skillEditFrontmatter, type Skill } from "@/lib/api";
+import type { LayoutMode } from "@/hooks/useSkills";
 
 /**
- * C9 创作页（PLAN-06 §3.13）：authored 技能列表 + 编辑表单。
- * - frontmatter 表单走 C10 skill_edit_frontmatter（未知字段字节级保留）；
- * - 正文走 C6 skill_write_file（归属闸）；
- * - Codex 兼容三件套走 C8 openai_yaml_generate。
+ * C9 创作页（UI 反馈 2026-08-05 条目 4 重构）：
+ * - 与其他主页同构：SectionHead + 卡片网格（ghost 新建卡独占一行）；
+ * - 卡片点击 → 居中 CreationEditDialog（正文/Codex tab + Markdown 预览）；
+ * - 卡片右上角编辑钮 → 重命名（C10 skill_edit_frontmatter）；
+ * - 无「保存 frontmatter」常驻按钮。
  */
 interface CreationViewProps {
   skills: Skill[];
   refresh: () => void;
+  layout: LayoutMode;
+  onLayoutChange: (m: LayoutMode) => void;
 }
 
-function splitFrontmatter(md: string): { fm: string; body: string } | null {
-  if (!md.startsWith("---")) return null;
-  const rest = md.slice(3);
-  const idx = rest.indexOf("\n---");
-  if (idx < 0) return null;
-  return { fm: rest.slice(0, idx).replace(/^\n/, ""), body: rest.slice(idx + 4).replace(/^\n/, "") };
-}
-
-export function CreationView({ skills, refresh }: CreationViewProps) {
+export function CreationView({
+  skills,
+  refresh,
+  layout,
+  onLayoutChange,
+}: CreationViewProps) {
   const authored = useMemo(
     () => skills.filter((s) => s.tool_id === "authored"),
     [skills]
   );
-  const [selected, setSelected] = useState<Skill | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
-  const [body, setBody] = useState("");
-  const [origFm, setOrigFm] = useState("");
-  const [dn, setDn] = useState("");
-  const [sd, setSd] = useState("");
-  const [dp, setDp] = useState("");
-  const [busy, setBusy] = useState<string>("");
+  const [newOpen, setNewOpen] = useState(false);
+  const [editing, setEditing] = useState<Skill | null>(null);
+  const [renaming, setRenaming] = useState<Skill | null>(null);
+  const [newName, setNewName] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
 
-  // 选中技能 → 读 SKILL.md 拆 frontmatter/body
-  useEffect(() => {
-    if (!selected) return;
-    if (isMockMode()) {
-      setName(selected.name);
-      setDesc(selected.description);
-      setBody(`# ${selected.name}\n\n${selected.description}\n`);
-      setOrigFm(`name: ${selected.name}\ndescription: ${selected.description}`);
-      return;
-    }
-    readSkillFile(selected.source_path)
-      .then((md) => {
-        const parts = splitFrontmatter(md);
-        if (parts) {
-          setOrigFm(parts.fm);
-          setBody(parts.body);
-          const nameLine = parts.fm.split("\n").find((l) => l.startsWith("name:"));
-          const descLine = parts.fm.split("\n").find((l) => l.startsWith("description:"));
-          setName(nameLine?.replace(/^name:\s*/, "").replace(/^"|"$/g, "") ?? "");
-          setDesc(descLine?.replace(/^description:\s*/, "").replace(/^"|"$/g, "") ?? "");
-        }
-      })
-      .catch(() => toast.error("读取 SKILL.md 失败"));
-  }, [selected]);
+  let idx = 0;
 
-  const saveMeta = async () => {
-    if (!selected) return;
-    setBusy("meta");
+  const openRename = (s: Skill) => {
+    setRenaming(s);
+    setNewName(s.name);
+  };
+
+  const submitRename = async () => {
+    if (!renaming) return;
+    setRenameBusy(true);
     try {
-      await skillEditFrontmatter(selected.skill_dir, [
-        { key: "name", op: "set", value: name },
-        { key: "description", op: "set", value: desc },
+      await skillEditFrontmatter(renaming.skill_dir, [
+        { key: "name", op: "set", value: newName.trim() },
       ]);
-      toast.success("frontmatter 已保存（未知字段保留）");
+      toast.success(`已重命名为 ${newName.trim()}`);
+      setRenaming(null);
       refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy("");
-    }
-  };
-
-  const saveBody = async () => {
-    if (!selected) return;
-    setBusy("body");
-    try {
-      // frontmatter 原样回拼，正文整文件写（C6 归属闸 + rel 安全）
-      const full = `---\n${origFm}\n---\n${body}`;
-      await skillWriteFile(selected.skill_dir, "SKILL.md", full);
-      toast.success("正文已保存");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const saveCodex = async () => {
-    if (!selected) return;
-    setBusy("codex");
-    try {
-      const res = await openaiYamlGenerate(
-        selected.skill_dir,
-        { display_name: dn, short_description: sd, default_prompt: dp },
-        true
-      );
-      toast.success(
-        res.warnings.length > 0 ? `openai.yaml 已写入：${res.warnings.join("；")}` : "openai.yaml 已写入"
-      );
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      toast.error(raw === "EXISTS" ? "openai.yaml 已存在" : raw);
-    } finally {
-      setBusy("");
+      setRenameBusy(false);
     }
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl gap-6 px-6 py-6">
-      {/* 左：authored 列表 */}
-      <div className="w-64 shrink-0">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-            <PenLine className="h-4 w-4 text-primary" />
-            我的创作（{authored.length}）
-          </h2>
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
-            <Sparkles className="h-3 w-3" />
-            新建
-          </Button>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {authored.length === 0 && (
-            <p className="text-xs text-text-tertiary">
-              还没有创作技能——点「新建」用模板或 AI 起草
-            </p>
-          )}
+    <div className="relative py-6">
+      <SectionHead
+        title="创作"
+        subtitle={`${authored.length} 个创作技能 · 草稿期建议留在 authored`}
+      >
+        <button type="button" className="mbtn primary" onClick={() => setNewOpen(true)}>
+          <Sparkles className="h-3.5 w-3.5" />
+          新建
+        </button>
+        <LayoutToggle value={layout} onChange={onLayoutChange} />
+      </SectionHead>
+
+      {layout === "grid" ? (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {/* 新建入口独占一行，与主页 ghost 卡布局一致 */}
+          <div className="col-span-full">
+            <GhostCard
+              icon={<PenLine className="h-[22px] w-[22px]" />}
+              title="新建创作"
+              subtitle="模板或 AI 起草，落点 authored"
+              index={idx++}
+              onClick={() => setNewOpen(true)}
+            />
+          </div>
           {authored.map((s) => (
-            <button
+            <AuthoredCard
               key={s.id}
-              type="button"
-              onClick={() => setSelected(s)}
-              className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                selected?.id === s.id
-                  ? "border-primary/60 bg-glass-2"
-                  : "border-border/40 bg-glass-1 hover:bg-glass-2"
-              }`}
-            >
-              <div className="truncate font-medium text-text-primary">{s.name}</div>
-              <div className="truncate text-[11px] text-text-tertiary">{s.description}</div>
-            </button>
+              skill={s}
+              index={idx++}
+              layout="grid"
+              onClick={() => setEditing(s)}
+              onRename={() => openRename(s)}
+            />
           ))}
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-[10px]">
+          <GhostCard
+            layout="list"
+            icon={<PenLine className="h-5 w-5" />}
+            title="新建创作"
+            subtitle="模板或 AI 起草，落点 authored"
+            index={idx++}
+            onClick={() => setNewOpen(true)}
+          />
+          {authored.map((s) => (
+            <AuthoredCard
+              key={s.id}
+              skill={s}
+              index={idx++}
+              layout="list"
+              onClick={() => setEditing(s)}
+              onRename={() => openRename(s)}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* 右：编辑表单 */}
-      <div className="min-w-0 flex-1">
-        {!selected ? (
-          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-border/50 text-sm text-text-tertiary">
-            选择左侧技能开始编辑
-          </div>
-        ) : (
-          <div className="flex flex-col gap-5">
-            {/* frontmatter 表单（C10） */}
-            <section className="rounded-lg border border-border/40 bg-glass-1 p-4">
-              <h3 className="mb-3 text-xs font-semibold text-text-secondary">
-                frontmatter（保存时未知字段/注释字节级保留）
-              </h3>
-              <div className="flex flex-col gap-3">
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">name（hyphen-case）</div>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} className="h-8 font-mono" />
-                </div>
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">
-                    description（做什么 + 何时用）
-                  </div>
-                  <Input value={desc} onChange={(e) => setDesc(e.target.value)} className="h-8" />
-                </div>
-                <Button size="sm" disabled={busy !== ""} onClick={saveMeta}>
-                  {busy === "meta" && <Loader2 className="h-3 w-3 animate-spin" />}
-                  <Save className="h-3 w-3" />
-                  保存 frontmatter
-                </Button>
-              </div>
-            </section>
+      {authored.length === 0 && (
+        <p className="mt-6 text-center text-xs text-text-tertiary">
+          还没有创作技能——点「新建创作」用模板或 AI 起草
+        </p>
+      )}
 
-            {/* 正文（C6） */}
-            <section className="rounded-lg border border-border/40 bg-glass-1 p-4">
-              <h3 className="mb-3 text-xs font-semibold text-text-secondary">正文（Markdown）</h3>
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={8}
-                className="w-full rounded-md border border-input bg-transparent p-2 font-mono text-xs"
-              />
-              <Button size="sm" className="mt-2" disabled={busy !== ""} onClick={saveBody}>
-                {busy === "body" && <Loader2 className="h-3 w-3 animate-spin" />}
-                <Save className="h-3 w-3" />
-                保存正文
-              </Button>
-            </section>
-
-            {/* Codex 兼容（C8） */}
-            <section className="rounded-lg border border-border/40 bg-glass-1 p-4">
-              <h3 className="mb-1 text-xs font-semibold text-text-secondary">
-                Codex 兼容（agents/openai.yaml）
-              </h3>
-              <p className="mb-3 text-[11px] text-text-tertiary">
-                默认写三个文案字段；icon/brand_color 需提供时才写入（官方原则）
-              </p>
-              <div className="flex flex-col gap-3">
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">display_name</div>
-                  <Input value={dn} onChange={(e) => setDn(e.target.value)} className="h-8" />
-                </div>
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">
-                    short_description（25–64 字符，当前 {[...sd].length}）
-                  </div>
-                  <Input value={sd} onChange={(e) => setSd(e.target.value)} className="h-8" />
-                </div>
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">
-                    default_prompt（必须含 $skill-name）
-                  </div>
-                  <Input
-                    value={dp}
-                    onChange={(e) => setDp(e.target.value)}
-                    placeholder="Use $skill-name to ..."
-                    className="h-8"
-                  />
-                </div>
-                <Button size="sm" disabled={busy !== ""} onClick={saveCodex}>
-                  {busy === "codex" && <Loader2 className="h-3 w-3 animate-spin" />}
-                  生成 openai.yaml
-                </Button>
-              </div>
-            </section>
-          </div>
-        )}
-      </div>
-
-      {dialogOpen && (
+      {newOpen && (
         <NewSkillDialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
+          open={newOpen}
+          onClose={() => setNewOpen(false)}
           onCreated={refresh}
         />
       )}
+
+      {editing && (
+        <CreationEditDialog
+          skill={editing}
+          open={!!editing}
+          onClose={() => setEditing(null)}
+          onSaved={refresh}
+        />
+      )}
+
+      {/* 重命名小弹窗（条目 4：外层卡片编辑钮） */}
+      <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
+        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-4 w-4 text-primary" />
+              重命名技能
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-1">
+            <div className="mb-1.5 text-xs text-muted-foreground">
+              新名称（hyphen-case，如 code-review）
+            </div>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="h-8 font-mono"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setRenaming(null)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              disabled={!newName.trim() || renameBusy}
+              onClick={submitRename}
+            >
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/** 创作卡片：与 FolderCard 同形的玻璃卡；右上角编辑钮重命名。 */
+function AuthoredCard({
+  skill,
+  index,
+  layout,
+  onClick,
+  onRename,
+}: {
+  skill: Skill;
+  index: number;
+  layout: "grid" | "list";
+  onClick: () => void;
+  onRename: () => void;
+}) {
+  const wrapStyle = { "--i": index } as CSSProperties;
+
+  if (layout === "list") {
+    return (
+      <div className="card-wrap" style={wrapStyle}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+          className="glass-card glass-card-hover card-glow relative flex w-full cursor-pointer items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
+        >
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
+          <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
+            <PenLine className="h-5 w-5" />
+          </span>
+          <div className="relative z-[1] min-w-0 flex-1">
+            <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
+              {skill.name}
+            </h3>
+            <p className="truncate text-[11px] text-text-tertiary">{skill.description}</p>
+          </div>
+          <Tip label="重命名">
+            <button
+              type="button"
+              className="relative z-[1] grid h-7 w-7 place-items-center rounded-md border border-stroke bg-glass-2 text-text-secondary hover:text-text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename();
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </Tip>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card-wrap" style={wrapStyle}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        className="glass-card glass-card-hover card-glow relative flex h-full w-full cursor-pointer flex-col overflow-hidden p-[18px] text-left"
+      >
+        <div className="relative z-[1] flex items-start justify-between">
+          <span className="grid h-[42px] w-[42px] place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
+            <PenLine className="h-5 w-5" />
+          </span>
+          <Tip label="重命名">
+            <button
+              type="button"
+              className="grid h-7 w-7 place-items-center rounded-md border border-stroke bg-glass-2 text-text-secondary hover:text-text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename();
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </Tip>
+        </div>
+        <h3 className="relative z-[1] mt-3 truncate font-display text-[15.5px] font-semibold text-text-primary">
+          {skill.name}
+        </h3>
+        <p className="relative z-[1] mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-tertiary">
+          {skill.description}
+        </p>
+      </div>
     </div>
   );
 }

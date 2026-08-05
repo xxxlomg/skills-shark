@@ -446,7 +446,12 @@ function App() {
               publishingId={publishingId}
             />
           ) : tab === "create" ? (
-            <CreationView skills={skills} refresh={refresh} />
+            <CreationView
+              skills={skills}
+              refresh={refresh}
+              layout={layout}
+              onLayoutChange={handleLayoutChange}
+            />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
           ) : loading ? (

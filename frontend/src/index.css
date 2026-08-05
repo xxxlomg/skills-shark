@@ -848,3 +848,18 @@
 [data-sonner-toast][data-type="info"] [data-icon] {
   color: var(--accent);
 }
+
+/* AI 创作引导文案淡入（UI 反馈 2026-08-05 条目 5） */
+@keyframes fade-in-soft {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in-soft 0.6s ease-out both;
+}

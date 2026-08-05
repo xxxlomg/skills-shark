@@ -11,22 +11,25 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tip } from "@/components/common/Tip";
 import { skillNew, skillCommitDraft, hubListTools, type ToolInfo } from "@/lib/api";
 import { generateAndCommit } from "@/lib/authoring-api";
 import { isMockMode, MOCK_TOOLS } from "@/mock";
 
 /**
- * C5/C7：新建技能对话框。
- * - 模板模式（C5）：name + description，落点 authored；
- * - AI 模式（C7）：主题 → 流式生成 → skill_commit_draft 落盘 → 校验报告；
- *   落点双选（authored / 可写工具目录，§3.9）。
- * 同名已存在（EXISTS）提示改名。
+ * C5/C7 新建技能对话框（UI 反馈 2026-08-05 重构）：
+ * - 模板模式为主：name 必填、description 可选（先命名后补描述）；
+ * - AI 创作内嵌：标题行右侧入口，停留 60s 未保存淡入「没灵感？试试 AI 创作」；
+ * - 双落点共用（§3.9）；
+ * - 输入框 focus ring 不被裁切：滚动容器留 padding、行距放宽。
  */
 interface NewSkillDialogProps {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
+
+const AI_HINT_DELAY_MS = 60_000;
 
 export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps) {
   const [mode, setMode] = useState<"template" | "ai">("template");
@@ -38,6 +41,14 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [stream, setStream] = useState("");
+  const [aiHint, setAiHint] = useState(false);
+
+  // 停留 60s 未保存 → 淡入提示切 AI（条目 5）
+  useEffect(() => {
+    if (!open || mode === "ai") return;
+    const t = setTimeout(() => setAiHint(true), AI_HINT_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [open, mode]);
 
   // 落点候选：可写工具（非 app_owned）
   useEffect(() => {
@@ -57,7 +68,6 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
     setStream("");
     try {
       if (mode === "template") {
-        // C9 双落点：authored 走 skill_new（C5 语义）；工具目录走 commit_draft 空 body 骨架
         if (location === "authored") {
           await skillNew({ name, description });
         } else {
@@ -72,9 +82,7 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
         );
         const warns = res.validation.issues.filter((i) => i.severity !== "info").length;
         toast.success(
-          warns > 0
-            ? `AI 技能已落盘，${warns} 项诊断提示`
-            : "AI 技能已落盘，校验全绿"
+          warns > 0 ? `AI 技能已落盘，${warns} 项诊断提示` : "AI 技能已落盘，校验全绿"
         );
         setTopic("");
         setStream("");
@@ -82,7 +90,8 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
       onCreated();
       onClose();
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e);
+      const raw =
+        e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e);
       setError(
         raw === "EXISTS"
           ? "同名技能已存在，请换一个 name"
@@ -95,52 +104,63 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
     }
   };
 
-  const canSubmit =
-    mode === "template"
-      ? !!name.trim() && !!description.trim()
-      : !!topic.trim();
+  const canSubmit = mode === "template" ? !!name.trim() : !!topic.trim();
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="flex max-h-[85vh] flex-col border-border/60 bg-card/95 backdrop-blur-xl">
         <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <PenLine className="h-4 w-4 text-primary" />
-            新建技能
-          </DialogTitle>
-          <DialogDescription>
-            模板模式手写骨架；AI 模式输入主题流式生成草稿，落盘后即时校验
-          </DialogDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle className="flex items-center gap-2">
+                <PenLine className="h-4 w-4 text-primary" />
+                新建技能
+              </DialogTitle>
+              <DialogDescription className="mt-1.5">
+                {mode === "template"
+                  ? "先命名即可创建；描述可稍后在创作页补充"
+                  : "输入主题流式生成草稿，落盘后即时校验"}
+              </DialogDescription>
+            </div>
+            {/* AI 创作内嵌入口（条目 5）：60s 未保存淡入引导文案 */}
+            {mode === "template" && (
+              <Tip label="用 AI 从主题生成草稿">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-text-secondary"
+                  onClick={() => setMode("ai")}
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span
+                    className={aiHint ? "animate-fade-in text-primary" : ""}
+                  >
+                    {aiHint ? "没灵感？试试 AI 创作" : "AI 创作"}
+                  </span>
+                </Button>
+              </Tip>
+            )}
+            {mode === "ai" && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-text-secondary"
+                onClick={() => setMode("template")}
+              >
+                返回模板
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-          {/* 模式切换 */}
-          <div className="flex gap-1 rounded-lg bg-glass-1 p-1">
-            <button
-              type="button"
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs transition-colors ${
-                mode === "template" ? "bg-glass-3 text-text-primary" : "text-text-secondary hover:text-text-primary"
-              }`}
-              onClick={() => setMode("template")}
-            >
-              模板模式
-            </button>
-            <button
-              type="button"
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs transition-colors ${
-                mode === "ai" ? "bg-glass-3 text-text-primary" : "text-text-secondary hover:text-text-primary"
-              }`}
-              onClick={() => setMode("ai")}
-            >
-              <Sparkles className="mr-1 inline h-3 w-3" />
-              AI 生成
-            </button>
-          </div>
-
+        {/* p-1 给 focus ring 留空间，避免外圈特效被裁（条目 3） */}
+        <div className="flex flex-col gap-4 overflow-y-auto p-1">
           {mode === "template" ? (
             <>
               <div>
-                <div className="mb-1 text-xs text-muted-foreground">
+                <div className="mb-1.5 text-xs text-muted-foreground">
                   名称 *（hyphen-case，如 code-review）
                 </div>
                 <Input
@@ -151,8 +171,8 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
                 />
               </div>
               <div>
-                <div className="mb-1 text-xs text-muted-foreground">
-                  描述 *（写清"做什么 + 何时用"——模型只凭它决定是否使用）
+                <div className="mb-1.5 text-xs text-muted-foreground">
+                  描述（可选——写清"做什么 + 何时用"，模型只凭它决定是否使用）
                 </div>
                 <Input
                   value={description}
@@ -165,7 +185,7 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
           ) : (
             <>
               <div>
-                <div className="mb-1 text-xs text-muted-foreground">主题 *</div>
+                <div className="mb-1.5 text-xs text-muted-foreground">主题 *</div>
                 <Input
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
@@ -183,7 +203,7 @@ export function NewSkillDialog({ open, onClose, onCreated }: NewSkillDialogProps
 
           {/* C9 双落点：两模式共用（§3.9） */}
           <div>
-            <div className="mb-1 text-xs text-muted-foreground">
+            <div className="mb-1.5 text-xs text-muted-foreground">
               落点（§3.9：草稿期建议 authored，明确归属再进工具目录）
             </div>
             <select
