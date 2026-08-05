@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -8,6 +9,7 @@ import { BackgroundFX } from "@/components/layout/BackgroundFX";
 import { Topbar } from "@/components/layout/Topbar";
 import { StatBar } from "@/components/layout/StatBar";
 import { TabNav } from "@/components/layout/TabNav";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { DEFAULT_VIEW, type ViewId } from "@/lib/view-registry";
 import { HubView } from "@/components/hub/HubView";
 import { LinkDialog } from "@/components/hub/LinkDialog";
@@ -40,7 +42,7 @@ import {
   type RepoImportResult,
 } from "@/lib/api";
 import { EmptyState } from "@/components/common/EmptyState";
-import { useSkills, type Skill, type LayoutMode } from "@/hooks/useSkills";
+import { useSkills, collectionDisplayName, type Skill, type LayoutMode } from "@/hooks/useSkills";
 
 declare global {
   interface Window {
@@ -48,7 +50,9 @@ declare global {
   }
 }
 
-type View = { type: "home" } | { type: "category"; label: string };
+type NavMode = "top" | "sidebar";
+
+type View = { type: "home" } | { type: "category"; label: string; collection?: string | null };
 
 function readLayout(): LayoutMode {
   try {
@@ -56,6 +60,14 @@ function readLayout(): LayoutMode {
     if (v === "list" || v === "grid") return v;
   } catch { /* ignore */ }
   return "grid";
+}
+
+function readNavMode(): NavMode {
+  try {
+    const v = localStorage.getItem("sm:navmode");
+    if (v === "top" || v === "sidebar") return v;
+  } catch { /* ignore */ }
+  return "top";
 }
 
 function App() {
@@ -66,6 +78,8 @@ function App() {
   // PLAN-10 P1：使用手册白皮书面（全屏覆盖层，右上角「关于」菜单进入）
   const [manualOpen, setManualOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutMode>(readLayout);
+  // PLAN-10 P2：全局布局切换（顶栏 ↔ 侧栏），持久化 sm:navmode
+  const [navMode, setNavMode] = useState<NavMode>(readNavMode);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -87,9 +101,23 @@ function App() {
     try { localStorage.setItem("sm:layout", mode); } catch { /* ignore */ }
   }, []);
 
+  const handleNavModeChange = useCallback((mode: NavMode) => {
+    setNavMode(mode);
+    try { localStorage.setItem("sm:navmode", mode); } catch { /* ignore */ }
+  }, []);
+
   const handleFolderClick = useCallback((label: string) => {
     setView({ type: "category", label });
   }, []);
+
+  // PLAN-10 P2：侧栏目录树节点直达（工具 / 合集）；合集带 collection 过滤
+  const handleOpenCollection = useCallback(
+    (label: string, collection: string | null) => {
+      setTab("lib");
+      setView({ type: "category", label, collection: collection ?? null });
+    },
+    []
+  );
 
   const handleBack = useCallback(() => {
     setView({ type: "home" });
@@ -411,6 +439,9 @@ function App() {
     return skills.find((s) => s.id === selectedSkill.id) ?? selectedSkill;
   }, [skills, selectedSkill]);
 
+  // PLAN-10 P2：侧栏仅在「非沉浸态 + 侧栏模式」下渲染
+  const sidebarShown = navMode === "sidebar" && !wbActive;
+
   return (
     <>
       <BackgroundFX />
@@ -427,26 +458,74 @@ function App() {
         />
       )}
 
-      <main className="flex-1">
+      <main className={`flex-1 ${sidebarShown ? "flex items-start" : ""}`}>
+        {/* PLAN-10 P2：侧栏模式下的左栏（主视图菜单 + 技能库目录树） */}
+        {sidebarShown && (
+          <Sidebar
+            activeTab={tab}
+            onChangeTab={setTab}
+            groups={groups}
+            currentLabel={view.type === "category" ? view.label : null}
+            currentCollection={
+              view.type === "category" ? view.collection ?? null : null
+            }
+            selectedSkillId={liveSelectedSkill?.id ?? null}
+            onOpenCollection={handleOpenCollection}
+            onOpenSkill={handleSkillClick}
+          />
+        )}
         {/* PLAN-08 三轮：工作台态全宽 + 无底部留白（页面不滚，内部自滚） */}
-        <div
-          className={
-            wbActive
-              ? "mx-auto w-full px-[26px]"
-              : "mx-auto w-full max-w-[1180px] px-[26px] pb-20"
-          }
-        >
-          {!wbActive && (
-            <StatBar
-              total={totalSkills}
-              translated={translatedCount}
-              outdated={0}
-              lost={lostCount}
-              packCount={packs.length}
-            />
-          )}
+        <div className="min-w-0 flex-1">
+          <div
+            className={
+              wbActive
+                ? "mx-auto w-full px-[26px]"
+                : "mx-auto w-full max-w-[1180px] px-[26px] pb-20"
+            }
+          >
+            {!wbActive && (
+              <StatBar
+                total={totalSkills}
+                translated={translatedCount}
+                outdated={0}
+                lost={lostCount}
+                packCount={packs.length}
+              />
+            )}
 
-          {!wbActive && <TabNav activeTab={tab} onChange={setTab} />}
+            {!wbActive && navMode === "top" && (
+              <TabNav activeTab={tab} onChange={setTab} />
+            )}
+
+            {/* PLAN-10 P2：顶栏模式下面包屑（技能库 / 工具 / 合集） */}
+            {!wbActive && navMode === "top" && view.type === "category" && (
+              <nav
+                className="pt-4"
+                aria-label="面包屑"
+              >
+                <div className="flex items-center gap-1.5 text-[12.5px] text-text-tertiary">
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="transition-colors hover:text-text-primary"
+                  >
+                    技能库
+                  </button>
+                  <ChevronRight className="h-3 w-3 shrink-0" />
+                  <span className="truncate text-text-secondary">
+                    {view.label}
+                  </span>
+                  {view.collection && (
+                    <>
+                      <ChevronRight className="h-3 w-3 shrink-0" />
+                      <span className="truncate text-text-secondary">
+                        {collectionDisplayName(view.collection)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </nav>
+            )}
 
           {/* 视图分发：按视图注册表 id 路由（PLAN-06 §7.6）。
               新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。
@@ -510,9 +589,10 @@ function App() {
             />
           ) : currentGroup ? (
             <CategoryView
-              key={view.label}
+              key={`${view.label}:${view.collection ?? ""}`}
               label={view.label}
               skills={currentGroup.skills}
+              collection={view.collection ?? null}
               layout={layout}
               onLayoutChange={handleLayoutChange}
               onBack={handleBack}
@@ -524,6 +604,7 @@ function App() {
           ) : (
             <EmptyState />
           )}
+          </div>
           </div>
         </div>
       </main>
@@ -603,6 +684,8 @@ function App() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSaved={handleSettingsSaved}
+        navMode={navMode}
+        onNavModeChange={handleNavModeChange}
       />
 
       <CommandSearch

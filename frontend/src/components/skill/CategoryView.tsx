@@ -24,6 +24,8 @@ import { collectionDisplayName } from "@/hooks/useSkills";
 interface CategoryViewProps {
   label: string;
   skills: Skill[];
+  /** PLAN-10 P2：仅展示指定合集（parent_collection），扁平渲染 */
+  collection?: string | null;
   layout: LayoutMode;
   onLayoutChange: (mode: LayoutMode) => void;
   onBack: () => void;
@@ -39,6 +41,7 @@ const PREVIEW_MAX = 3;
 export function CategoryView({
   label,
   skills,
+  collection,
   layout,
   onLayoutChange,
   onBack,
@@ -55,6 +58,15 @@ export function CategoryView({
     onNeedSettings: onSettingsOpen,
     onDone: onTranslateDone,
   });
+
+  // PLAN-10 P2：collection 模式下只看该合集，扁平展示
+  const isScoped = Boolean(collection);
+  const scopedTitle = collection ? collectionDisplayName(collection) : label;
+
+  const base = useMemo(() => {
+    if (!collection) return skills;
+    return skills.filter((s) => s.parent_collection === collection);
+  }, [skills, collection]);
 
   const toggleCollection = (c: string) => {
     setExpanded((prev) => {
@@ -85,9 +97,9 @@ export function CategoryView({
   }, [skills]);
 
   const filtered = useMemo(() => {
-    if (!query) return skills;
+    if (!query) return base;
     const q = query.toLowerCase();
-    return skills.filter(
+    return base.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.title_zh.toLowerCase().includes(q) ||
@@ -95,7 +107,7 @@ export function CategoryView({
         s.description_zh.toLowerCase().includes(q) ||
         s.folder_name.toLowerCase().includes(q)
     );
-  }, [skills, query]);
+  }, [base, query]);
 
   // 分组（基于 filtered）
   const { indep, cmap } = useMemo(() => {
@@ -114,8 +126,8 @@ export function CategoryView({
   const hasCollections = cmap.size > 0;
   const showIndepHeader = indep.length > 0 && hasCollections;
 
-  const okCount = skills.filter((s) => s.has_translation).length;
-  const pendingCount = skills.length - okCount;
+  const okCount = base.filter((s) => s.has_translation).length;
+  const pendingCount = base.length - okCount;
   const hasUntranslated = pendingCount > 0;
 
   // 渲染一组 skills（grid / list 均由 SkillCard 承担）
@@ -156,13 +168,13 @@ export function CategoryView({
       </button>
 
       <SectionHead
-        title={label}
-        subtitle={`${skills.length} 个技能 · ${okCount} 已翻译 · ${pendingCount} 待处理`}
+        title={scopedTitle}
+        subtitle={`${base.length} 个技能 · ${okCount} 已翻译 · ${pendingCount} 待处理`}
       >
         <button
           type="button"
           className="mbtn primary"
-          onClick={() => run(skills)}
+          onClick={() => run(base)}
           disabled={running || !hasUntranslated}
         >
           {running ? (
@@ -200,6 +212,9 @@ export function CategoryView({
         ) : (
           <EmptyState />
         )
+      ) : isScoped ? (
+        // PLAN-10 P2：合集过滤视图扁平展示（不再套合集分组）
+        <div>{renderSkills(filtered)}</div>
       ) : (
         <div className="space-y-6">
           {/* 独立技能区 */}

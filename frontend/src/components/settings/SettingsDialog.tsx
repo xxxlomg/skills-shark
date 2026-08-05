@@ -19,6 +19,8 @@ import {
   Link2,
   Store,
   GitBranch,
+  PanelTop,
+  PanelLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -63,6 +65,9 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 保存成功后的回调（用于主界面刷新列表） */
   onSaved?: () => void;
+  /** PLAN-10 P2：全局布局切换（顶栏 / 侧栏） */
+  navMode?: "top" | "sidebar";
+  onNavModeChange?: (mode: "top" | "sidebar") => void;
 }
 
 type Section = "llm" | "tools" | "repo" | "appearance";
@@ -74,7 +79,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Key; hint: string }[]
   { id: "appearance", label: "外观", icon: Palette, hint: "界面主题色" },
 ];
 
-export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onSaved, navMode, onNavModeChange }: SettingsDialogProps) {
   // 当前分区（sidebar 导航）
   const [section, setSection] = useState<Section>("llm");
 
@@ -853,6 +858,45 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                       )}
                     </button>
                   ))}
+                </div>
+
+                {/* PLAN-10 P2：全局布局切换（立即生效并自动保存） */}
+                <div className="space-y-1.5 border-t border-stroke pt-3">
+                  <p className="text-sm font-medium text-foreground">
+                    导航布局
+                  </p>
+                  <p className="text-[11px] text-text-tertiary">
+                    侧栏模式在左侧常驻主视图菜单与技能库目录树，深层级技能查看时可直达任意层级。
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { id: "top", label: "顶栏", icon: PanelTop },
+                        { id: "sidebar", label: "侧栏", icon: PanelLeft },
+                      ] as const
+                    ).map((opt) => {
+                      const Icon = opt.icon;
+                      const active = (navMode ?? "top") === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => onNavModeChange?.(opt.id)}
+                          className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors ${
+                            active
+                              ? "border-stroke-hi bg-glass-2 text-foreground"
+                              : "border-border text-text-secondary hover:border-stroke-hi hover:text-text-primary"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {opt.label}
+                          {active && (
+                            <Check className="ml-auto h-4 w-4 text-[var(--accent)]" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}
