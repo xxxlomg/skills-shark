@@ -60,6 +60,8 @@ pub fn run() {
             authoring::claude_md_generate,
             authoring::skill_edit_frontmatter,
             authoring::skill_rename,
+            authoring::skill_list_files,
+            authoring::skill_delete_file,
             commands::git_status,
             commands::repo_browse,
             commands::repo_import_commit,

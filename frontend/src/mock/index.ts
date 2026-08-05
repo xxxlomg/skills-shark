@@ -9,6 +9,7 @@
  * - translations.ts 原文/译文/双语样本
  * - shelf.ts        模块 A 货架浏览样本（MOCK_SHELF）
  * - validation.ts   C3 校验矩阵样本（mockValidationReport）
+ * - files.ts        W4 附带资源文件树（内存态）
  *
  * 新增 mock 数据一律落本文件夹，禁止散落在组件或 hooks 里。
  * 后端 mock/测试 fixture 归 frontend/src-tauri/mock/，与本目录互不引用。
@@ -21,3 +22,4 @@ export { MOCK_LINKS } from "./links";
 export { MOCK_RAW, MOCK_TRANS, MOCK_BILINGUAL } from "./translations";
 export { MOCK_SHELF } from "./shelf";
 export { mockValidationReport } from "./validation";
+export { mockFileTree, mockDeleteFile, mockWriteToTree } from "./files";

@@ -738,6 +738,97 @@ pub(crate) fn rename_skill_core(
 }
 
 // ---------------------------------------------------------------------------
+// W4（PLAN-07 §5）：附带资源文件树 + 删除
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize, Debug)]
+pub struct FileNode {
+    /// 相对 skill_dir 的斜杠路径
+    pub rel: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub children: Vec<FileNode>,
+}
+
+const SKIP_DIRS: [&str; 2] = [".git", "node_modules"];
+const MAX_DEPTH: u32 = 3;
+
+fn walk_dir(root: &Path, dir: &Path, depth: u32) -> Result<Vec<FileNode>, String> {
+    if depth >= MAX_DEPTH {
+        return Ok(vec![]);
+    }
+    let rd = std::fs::read_dir(dir).map_err(|e| format!("读目录失败：{e}"))?;
+    let mut entries: Vec<_> = rd.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name());
+    let mut nodes = Vec::new();
+    for e in entries {
+        let name = e.file_name().to_string_lossy().to_string();
+        if SKIP_DIRS.contains(&name.as_str()) {
+            continue;
+        }
+        let path = e.path();
+        let rel = path
+            .strip_prefix(root)
+            .map_err(|_| "内部错误：rel 计算失败".to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let is_dir = path.is_dir();
+        let children = if is_dir {
+            walk_dir(root, &path, depth + 1)?
+        } else {
+            Vec::new()
+        };
+        nodes.push(FileNode { rel, name, is_dir, children });
+    }
+    Ok(nodes)
+}
+
+/// 文件树核心（roots 参数化）：归属闸 + 深度 ≤3 + 跳 .git/node_modules。
+pub(crate) fn list_files_checked(
+    skill_dir: &Path,
+    roots: &[PathBuf],
+) -> Result<Vec<FileNode>, String> {
+    assert_path_owned_with_roots(skill_dir, roots)?;
+    if !skill_dir.is_dir() {
+        return Err("技能目录不存在".into());
+    }
+    walk_dir(skill_dir, skill_dir, 0)
+}
+
+#[tauri::command]
+pub fn skill_list_files(skill_dir: String) -> Result<Vec<FileNode>, String> {
+    list_files_checked(Path::new(&skill_dir), &owned_roots())
+}
+
+/// 删除附带文件核心：同闸；SKILL.md 绝不删；目录递归删。
+pub(crate) fn delete_file_checked(
+    skill_dir: &Path,
+    rel: &str,
+    roots: &[PathBuf],
+) -> Result<(), String> {
+    assert_rel_safe(rel)?;
+    assert_path_owned_with_roots(skill_dir, roots)?;
+    if rel.replace('\\', "/").eq_ignore_ascii_case("SKILL.md") {
+        return Err("SKILL.md 不可删除".into());
+    }
+    let target = skill_dir.join(rel);
+    if !target.exists() {
+        return Err("目标不存在".into());
+    }
+    if target.is_dir() {
+        std::fs::remove_dir_all(&target).map_err(|e| format!("删目录失败：{e}"))?;
+    } else {
+        std::fs::remove_file(&target).map_err(|e| format!("删文件失败：{e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn skill_delete_file(skill_dir: String, rel: String) -> Result<(), String> {
+    delete_file_checked(Path::new(&skill_dir), &rel, &owned_roots())
+}
+
+// ---------------------------------------------------------------------------
 // C10 单测：字节级保留（验收硬标准）
 // ---------------------------------------------------------------------------
 #[cfg(test)]
@@ -943,6 +1034,78 @@ mod c8_reverse_tests {
         std::fs::create_dir_all(&evil).unwrap();
         let err = generate_claude_md_checked(&evil, &roots_with(tmp.path())).unwrap_err();
         assert!(err.starts_with("PATH_ESCAPE"), "{err}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// W4 单测：文件树形状 / 逃逸拒 / SKILL.md 保护 / 删除
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod w4_tests {
+    use super::*;
+
+    fn seed(tmp: &Path) -> PathBuf {
+        let skill = tmp.join("my-skill");
+        std::fs::create_dir_all(skill.join("scripts")).unwrap();
+        std::fs::create_dir_all(skill.join("references")).unwrap();
+        std::fs::create_dir_all(skill.join(".git")).unwrap();
+        std::fs::create_dir_all(skill.join("a/b/c/d")).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "---\nname: my-skill\ndescription: x y z\n---\n").unwrap();
+        std::fs::write(skill.join("scripts/run.py"), "print(1)").unwrap();
+        std::fs::write(skill.join("references/note.md"), "note").unwrap();
+        std::fs::write(skill.join(".git/HEAD"), "ref").unwrap();
+        std::fs::write(skill.join("a/b/c/d/deep.txt"), "deep").unwrap();
+        skill
+    }
+
+    #[test]
+    fn tree_shape_depth_and_skip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = seed(tmp.path());
+        let tree = list_files_checked(&skill, &[tmp.path().to_path_buf()]).unwrap();
+        let names: Vec<&str> = tree.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"SKILL.md"));
+        assert!(names.contains(&"scripts"));
+        assert!(!names.contains(&".git"), ".git 必须跳过");
+        let a = tree.iter().find(|n| n.name == "a").unwrap();
+        let b = &a.children[0];
+        let c = &b.children[0];
+        assert_eq!(c.name, "c");
+        assert!(c.children.is_empty(), "深度 >3 必须截断（d 不出现）");
+    }
+
+    #[test]
+    fn list_rejects_outside_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let err = list_files_checked(outside.path(), &[tmp.path().to_path_buf()]).unwrap_err();
+        assert!(err.starts_with("PATH_ESCAPE"), "{err}");
+    }
+
+    #[test]
+    fn delete_protects_skill_md_and_rel_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = seed(tmp.path());
+        let roots = vec![tmp.path().to_path_buf()];
+        assert_eq!(
+            delete_file_checked(&skill, "SKILL.md", &roots).unwrap_err(),
+            "SKILL.md 不可删除"
+        );
+        assert!(delete_file_checked(&skill, "../x.txt", &roots).is_err());
+        assert!(delete_file_checked(&skill, "scripts/../../evil", &roots).is_err());
+        assert!(skill.join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn delete_file_and_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill = seed(tmp.path());
+        let roots = vec![tmp.path().to_path_buf()];
+        delete_file_checked(&skill, "references/note.md", &roots).unwrap();
+        assert!(!skill.join("references/note.md").exists());
+        delete_file_checked(&skill, "scripts", &roots).unwrap();
+        assert!(!skill.join("scripts").exists());
+        assert!(skill.join("SKILL.md").exists());
     }
 }
 

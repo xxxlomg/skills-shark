@@ -12,7 +12,10 @@ import {
   MOCK_LINKS,
   MOCK_SHELF,
   MOCK_SKILLS,
+  mockDeleteFile,
+  mockFileTree,
   mockValidationReport,
+  mockWriteToTree,
 } from "@/mock";
 
 // ---------------------------------------------------------------------------
@@ -927,9 +930,36 @@ export function skillWriteFile(
   if (isMockMode()) {
     // mock 不落盘；rel 安全语义前端同步模拟（.. 拒绝）
     if (relPath.includes("..")) return Promise.reject(new Error("rel_path 不允许 .. 逃逸"));
+    mockWriteToTree(skillDir, relPath);
     return Promise.resolve();
   }
   return invoke("skill_write_file", { skillDir, relPath, content });
+}
+
+/** W4：附带资源文件树（深度 ≤3，跳 .git/node_modules，后端归属闸）。 */
+export interface FileNode {
+  rel: string;
+  name: string;
+  is_dir: boolean;
+  children: FileNode[];
+}
+
+export function skillListFiles(skillDir: string): Promise<FileNode[]> {
+  if (isMockMode()) return Promise.resolve(mockFileTree(skillDir));
+  return invoke<FileNode[]>("skill_list_files", { skillDir });
+}
+
+/** W4：删除附带文件（同闸；SKILL.md 拒删）。 */
+export function skillDeleteFile(skillDir: string, rel: string): Promise<void> {
+  if (isMockMode()) {
+    try {
+      mockDeleteFile(skillDir, rel);
+      return Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+  return invoke("skill_delete_file", { skillDir, rel });
 }
 
 /** C8：生成 agents/openai.yaml（默认拒覆盖；overwrite 备份 .bak）。 */

@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Columns2,
   Eye,
+  FolderTree,
   Loader2,
   PenLine,
   Save,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tip } from "@/components/common/Tip";
 import { MarkdownPreview } from "@/components/common/MarkdownPreview";
+import { FileTree } from "./FileTree";
 import {
   hubListTools,
   readSkillFile,
@@ -115,6 +117,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onExit }: Authoring
   const [location, setLocation] = useState("authored");
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [preview, setPreview] = useState<PreviewMode>("split");
+  const [rightTab, setRightTab] = useState<"body" | "files">("body");
   const [busy, setBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
   const [optOpen, setOptOpen] = useState(false);
@@ -671,48 +674,73 @@ export function AuthoringWorkbench({ skill, skills, refresh, onExit }: Authoring
         <div className="flex min-h-[420px] flex-col gap-3">
           <div className="flex items-center gap-1">
             <Button
-              variant={preview === "edit" ? "secondary" : "ghost"}
+              variant={rightTab === "body" ? "secondary" : "ghost"}
               size="sm"
               className="h-7 px-2.5 text-xs"
-              onClick={() => setPreview("edit")}
+              onClick={() => setRightTab("body")}
             >
-              编辑
+              正文
             </Button>
             <Button
-              variant={preview === "split" ? "secondary" : "ghost"}
+              variant={rightTab === "files" ? "secondary" : "ghost"}
               size="sm"
               className="h-7 px-2.5 text-xs"
-              onClick={() => setPreview("split")}
+              onClick={() => setRightTab("files")}
             >
-              <Columns2 className="h-3 w-3" />
-              分栏
+              <FolderTree className="h-3 w-3" />
+              附带资源
             </Button>
-            <Button
-              variant={preview === "preview" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setPreview("preview")}
-            >
-              <Eye className="h-3 w-3" />
-              预览
-            </Button>
-          </div>
-          <div
-            className={
-              preview === "split"
-                ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
-                : "flex min-h-0 flex-1 flex-col"
-            }
-          >
-            {preview !== "preview" && (
-              <textarea
-                value={draft.body}
-                onChange={(e) => patch({ body: e.target.value })}
-                className="w-full flex-1 resize-none rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
-              />
+            {rightTab === "body" && (
+              <div className="ml-2 flex items-center gap-1 border-l border-border/40 pl-2">
+                <Button
+                  variant={preview === "edit" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setPreview("edit")}
+                >
+                  编辑
+                </Button>
+                <Button
+                  variant={preview === "split" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setPreview("split")}
+                >
+                  <Columns2 className="h-3 w-3" />
+                  分栏
+                </Button>
+                <Button
+                  variant={preview === "preview" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setPreview("preview")}
+                >
+                  <Eye className="h-3 w-3" />
+                  预览
+                </Button>
+              </div>
             )}
-            {preview !== "edit" && previewPane}
           </div>
+          {rightTab === "files" ? (
+            <FileTree skill={current} />
+          ) : (
+            <div
+              className={
+                preview === "split"
+                  ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
+                  : "flex min-h-0 flex-1 flex-col"
+              }
+            >
+              {preview !== "preview" && (
+                <textarea
+                  value={draft.body}
+                  onChange={(e) => patch({ body: e.target.value })}
+                  className="w-full flex-1 resize-none rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
+                />
+              )}
+              {preview !== "edit" && previewPane}
+            </div>
+          )}
         </div>
       </div>
 
