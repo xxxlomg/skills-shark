@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ChevronDown,
   Columns2,
   Eye,
   Loader2,
   PenLine,
   Save,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -43,20 +52,18 @@ import {
 } from "@/lib/wb-draft";
 
 /**
- * PLAN-07 W1：创作工作台骨架。
- * - 全页两态（列表 ↔ 工作台）中的工作台态；
- * - 顶栏：返回 / name（新建可编辑+hyphen-case 实时校验；编辑态只读，改名走卡片菜单）/
- *   落点（新建态）/ 未保存圆点 / 保存；
+ * PLAN-07 W1/W2：创作工作台。
+ * - 全页沉浸态（App 层隐藏 StatBar/TabNav）；
+ * - 顶栏：返回 / name（新建可编辑+hyphen-case 实时校验；编辑态只读）/ 落点（新建态，shadcn Select）/ 未保存圆点 / 保存；
  * - Ctrl+S = 保存（仅 mount 期间挂载监听）；
  * - 草稿 localStorage 兜底：dirty 变更同步写入；进入时有存量草稿 → 三态恢复横幅；
- * - 返回保护：dirty → 确认（保存并返回 / 直接返回）。
- * 左栏引导表单 = W2；frontmatter tab / 校验底栏 = W5。
+ * - 返回保护：dirty → 确认（保存并返回 / 直接返回）；
+ * - 左栏：步骤化引导表单（W2）——①做什么 ②何时用 + 折叠可选区 + description 生成。
  */
 interface AuthoringWorkbenchProps {
   skill: Skill | null; // null = 新建态
   refresh: () => void;
   onExit: () => void;
-  onDirtyChange: (dirty: boolean) => void;
 }
 
 type PreviewMode = "edit" | "split" | "preview";
@@ -72,12 +79,28 @@ function splitFrontmatter(md: string): { fm: string; body: string } | null {
   };
 }
 
-export function AuthoringWorkbench({
-  skill,
-  refresh,
-  onExit,
-  onDirtyChange,
-}: AuthoringWorkbenchProps) {
+/** 引导表单 → description（英文，「做什么 + 何时用」）。 */
+function buildDesc(d: WbDraft): string {
+  const purpose = d.purpose.trim().replace(/\.\s*$/, "");
+  if (!purpose) return "";
+  const triggers = d.triggers
+    .split(/\n+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(" / ");
+  return triggers ? `${purpose}. Use when ${triggers}.` : `${purpose}.`;
+}
+
+/** 步骤编号徽章。 */
+function StepBadge({ n }: { n: number }) {
+  return (
+    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+      {n}
+    </span>
+  );
+}
+
+export function AuthoringWorkbench({ skill, refresh, onExit }: AuthoringWorkbenchProps) {
   const [current, setCurrent] = useState<Skill | null>(skill);
   const draftId = current?.id ?? "new";
 
@@ -90,16 +113,13 @@ export function AuthoringWorkbench({
   const [preview, setPreview] = useState<PreviewMode>("split");
   const [busy, setBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [optOpen, setOptOpen] = useState(false);
 
   const dirtyRef = useRef(false);
-  const setDirtyAll = useCallback(
-    (d: boolean) => {
-      dirtyRef.current = d;
-      setDirty(d);
-      onDirtyChange(d);
-    },
-    [onDirtyChange]
-  );
+  const setDirtyAll = useCallback((d: boolean) => {
+    dirtyRef.current = d;
+    setDirty(d);
+  }, []);
 
   // 初始加载：磁盘内容 + 存量草稿检测
   useEffect(() => {
@@ -181,7 +201,13 @@ export function AuthoringWorkbench({
           const r = await skillNew({ name, description: draft.desc });
           dir = r.skill_dir;
           if (draft.body.trim()) {
-            await skillWriteFile(dir, "SKILL.md", `---\nname: ${name}\ndescription: ${draft.desc || "TODO: describe what this skill does and when to use it"}\n---\n${draft.body}`);
+            await skillWriteFile(
+              dir,
+              "SKILL.md",
+              `---\nname: ${name}\ndescription: ${
+                draft.desc || "TODO: describe what this skill does and when to use it"
+              }\n---\n${draft.body}`
+            );
           }
         } else {
           const r = await skillCommitDraft(location, {
@@ -198,8 +224,7 @@ export function AuthoringWorkbench({
         // 切编辑态：拉最新扫描找新技能
         const all = await scanSkills();
         const found =
-          all.find((s) => s.skill_dir === dir) ??
-          all.find((s) => s.name === name);
+          all.find((s) => s.skill_dir === dir) ?? all.find((s) => s.name === name);
         if (found) {
           setCurrent(found);
           setStored(null);
@@ -225,9 +250,7 @@ export function AuthoringWorkbench({
       }
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
-      toast.error(
-        raw === "EXISTS" ? "同名技能已存在，请换一个 name" : raw
-      );
+      toast.error(raw === "EXISTS" ? "同名技能已存在，请换一个 name" : raw);
     } finally {
       setBusy(false);
     }
@@ -275,25 +298,24 @@ export function AuthoringWorkbench({
               className="h-8 w-56 font-mono text-[13px]"
             />
             {nameInvalid && (
-              <span className="text-[11px] text-red-400">
-                需小写字母数字 + 连字符
-              </span>
+              <span className="text-[11px] text-red-400">需小写字母数字 + 连字符</span>
             )}
           </div>
         )}
         {!current && (
-          <select
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-          >
-            <option value="authored">落点：创作库（authored）</option>
-            {tools.map((t) => (
-              <option key={t.id} value={t.id}>
-                落点：{t.name}
-              </option>
-            ))}
-          </select>
+          <Select value={location} onValueChange={setLocation}>
+            <SelectTrigger size="sm" className="min-w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="authored">落点：创作库（authored）</SelectItem>
+              {tools.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  落点：{t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
         <div className="flex-1" />
         {dirty && (
@@ -311,9 +333,7 @@ export function AuthoringWorkbench({
       {/* 草稿恢复横幅（三态） */}
       {stored && (
         <div className="flex items-center gap-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-text-secondary">
-          <span>
-            检测到未保存草稿（{fmtSavedAt(stored.savedAt)} 保存）
-          </span>
+          <span>检测到未保存草稿（{fmtSavedAt(stored.savedAt)} 保存）</span>
           <div className="flex-1" />
           <Button
             variant="secondary"
@@ -343,25 +363,133 @@ export function AuthoringWorkbench({
         </div>
       )}
 
-      {/* 主体：左栏（W2 表单占位）+ 右栏编辑器 */}
+      {/* 主体：左栏引导表单 + 右栏编辑器 */}
       <div className="grid flex-1 gap-4 lg:grid-cols-[38fr_62fr]">
         <div className="flex flex-col gap-3">
-          <div className="glass-card p-4">
-            <h3 className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+          <div className="glass-card p-5">
+            <h3 className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
               <PenLine className="h-3.5 w-3.5 text-primary" />
               我的描述
             </h3>
-            <p className="text-[11px] leading-relaxed text-text-tertiary">
-              引导式描述表单（目的 / 触发 / 步骤 / 附带资源）——W2 落地。
+            <p className="mt-1 text-[11px] text-text-tertiary">
+              回答两个问题即可生成 description，可选项收在折叠里。
             </p>
+
+            <div className="mt-4 flex flex-col gap-4">
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={1} />
+                  <span className="text-xs font-medium text-text-primary">做什么</span>
+                  <span className="text-[10px] text-red-400">*</span>
+                </div>
+                <textarea
+                  value={draft.purpose}
+                  onChange={(e) => patch({ purpose: e.target.value })}
+                  placeholder="例：为 Spring Boot 项目生成规范的 changelog"
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={2}
+                />
+              </div>
+
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={2} />
+                  <span className="text-xs font-medium text-text-primary">何时用</span>
+                  <span className="text-[10px] text-text-tertiary">每行一条</span>
+                </div>
+                <textarea
+                  value={draft.triggers}
+                  onChange={(e) => patch({ triggers: e.target.value })}
+                  placeholder={"例：\n用户要求整理 release notes\n提交历史需要汇总成变更日志"}
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={3}
+                />
+              </div>
+
+              {/* 可选区：折叠 */}
+              <div className="rounded-md border border-border/40 bg-glass-1/60">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[11px] text-text-secondary hover:text-text-primary"
+                  onClick={() => setOptOpen((v) => !v)}
+                >
+                  <ChevronDown
+                    className={`h-3 w-3 transition-transform ${optOpen ? "" : "-rotate-90"}`}
+                  />
+                  可选 · 步骤概要与附带资源
+                </button>
+                {optOpen && (
+                  <div className="flex flex-col gap-3 px-3 pb-3">
+                    <textarea
+                      value={draft.steps}
+                      onChange={(e) => patch({ steps: e.target.value })}
+                      placeholder={"步骤概要，每行一步：\n读取 git log\n按 feat/fix 分类\n输出 markdown"}
+                      className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                      rows={3}
+                    />
+                    <div className="flex gap-3 text-[11px] text-text-secondary">
+                      {(
+                        [
+                          ["scripts", "scripts/"],
+                          ["references", "references/"],
+                          ["assets", "assets/"],
+                        ] as const
+                      ).map(([k, label]) => (
+                        <label key={k} className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={draft.resources[k]}
+                            onChange={(e) =>
+                              patch({
+                                resources: { ...draft.resources, [k]: e.target.checked },
+                              })
+                            }
+                            className="h-3 w-3 accent-[var(--brand)]"
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 生成结果 */}
+              <div className="border-t border-border/40 pt-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!draft.purpose.trim()}
+                    onClick={() => {
+                      patch({ desc: buildDesc(draft) });
+                      toast.success("description 已生成——可继续微调");
+                    }}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    由此生成描述
+                  </Button>
+                  <span className="text-[10px] text-text-tertiary">英文 ·「做什么 + 何时用」</span>
+                </div>
+                <textarea
+                  value={draft.desc}
+                  onChange={(e) => patch({ desc: e.target.value })}
+                  placeholder="生成结果会出现在这里，写入 frontmatter description"
+                  className="mt-2 w-full resize-none rounded-md border border-input bg-transparent p-2.5 font-mono text-[11px] leading-relaxed"
+                  rows={3}
+                />
+              </div>
+            </div>
           </div>
-          <div className="glass-card p-4">
-            <h3 className="mb-2 text-[13px] font-semibold text-text-primary">
-              写作准则 · 内容参考 · AI 规划
-            </h3>
-            <p className="text-[11px] leading-relaxed text-text-tertiary">
-              W2/W3 落地。
-            </p>
+
+          <div className="glass-card p-5">
+            <h3 className="mb-2.5 text-[13px] font-semibold text-text-primary">写作准则</h3>
+            <ul className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-text-tertiary">
+              <li>· description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用</li>
+              <li>· 正文祈使句书写，不用第二人称</li>
+              <li>· 长资料拆到 references/，正文保持精简</li>
+              <li>· name 用 hyphen-case，与目录名一致</li>
+            </ul>
           </div>
         </div>
 

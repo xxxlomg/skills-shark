@@ -114,9 +114,8 @@ function App() {
   const [packDialogOpen, setPackDialogOpen] = useState(false);
   // PLAN-07 W1：HomeView 新建技能 → 切创作 tab + 进空工作台（信号消费后归零）
   const [newSignal, setNewSignal] = useState(0);
-  // PLAN-07 W1：工作台 dirty 上报 → tab 切换守卫
-  const [wbDirty, setWbDirty] = useState(false);
-  const [pendingTab, setPendingTab] = useState<ViewId | null>(null);
+  // PLAN-07：工作台沉浸态 → 隐藏 StatBar/TabNav
+  const [wbActive, setWbActive] = useState(false);
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PackInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -193,18 +192,6 @@ function App() {
     setTab("create");
     setNewSignal((s) => s + 1);
   }, []);
-
-  // PLAN-07 W1：tab 切换守卫——工作台 dirty 时弹确认（草稿已自动兜底）
-  const handleTabChange = useCallback(
-    (next: ViewId) => {
-      if (next !== tab && tab === "create" && wbDirty) {
-        setPendingTab(next);
-        return;
-      }
-      setTab(next);
-    },
-    [tab, wbDirty]
-  );
 
   // 拖拽 zip / skillpack 到窗口任意位置 → 打开导入对话框
   useEffect(() => {
@@ -431,15 +418,17 @@ function App() {
 
       <main className="flex-1">
         <div className="mx-auto w-full max-w-[1180px] px-[26px] pb-20">
-          <StatBar
-            total={totalSkills}
-            translated={translatedCount}
-            outdated={0}
-            lost={lostCount}
-            packCount={packs.length}
-          />
+          {!wbActive && (
+            <StatBar
+              total={totalSkills}
+              translated={translatedCount}
+              outdated={0}
+              lost={lostCount}
+              packCount={packs.length}
+            />
+          )}
 
-          <TabNav activeTab={tab} onChange={handleTabChange} />
+          {!wbActive && <TabNav activeTab={tab} onChange={setTab} />}
 
           {/* 视图分发：按视图注册表 id 路由（PLAN-06 §7.6）。
               新视图登记 VIEW_REGISTRY 后在此加一行渲染即可。
@@ -473,7 +462,7 @@ function App() {
               onLayoutChange={handleLayoutChange}
               newSignal={newSignal}
               onNewSignalConsumed={() => setNewSignal(0)}
-              onDirtyChange={setWbDirty}
+              onWorkbenchChange={setWbActive}
             />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
@@ -576,20 +565,6 @@ function App() {
           }}
         />
       )}
-
-      {/* PLAN-07 W1：dirty 时切离创作 tab 的确认 */}
-      <ConfirmDialog
-        open={pendingTab !== null}
-        onOpenChange={(o) => !o && setPendingTab(null)}
-        title="有未保存改动"
-        description="创作工作台有未保存改动——草稿已自动兜底，下次进入可恢复。仍要切换？"
-        confirmText="切换"
-        onConfirm={() => {
-          if (pendingTab) setTab(pendingTab);
-          setPendingTab(null);
-          setWbDirty(false);
-        }}
-      />
 
       <ConfirmDialog
         open={!!deleteTarget}

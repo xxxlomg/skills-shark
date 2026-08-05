@@ -48,7 +48,8 @@ interface CreationViewProps {
   onLayoutChange: (m: LayoutMode) => void;
   newSignal: number;
   onNewSignalConsumed: () => void;
-  onDirtyChange: (dirty: boolean) => void;
+  /** 工作台态变化 → App 隐藏 StatBar/TabNav（沉浸创作） */
+  onWorkbenchChange: (active: boolean) => void;
 }
 
 /** 一键转换派生 short_description（25–64 字符硬约束自动满足）。 */
@@ -67,7 +68,7 @@ export function CreationView({
   onLayoutChange,
   newSignal,
   onNewSignalConsumed,
-  onDirtyChange,
+  onWorkbenchChange,
 }: CreationViewProps) {
   const authored = useMemo(
     () => skills.filter((s) => s.tool_id === "authored"),
@@ -84,9 +85,18 @@ export function CreationView({
   useEffect(() => {
     if (newSignal > 0) {
       setWb({ skill: null });
+      onWorkbenchChange(true);
       onNewSignalConsumed();
     }
-  }, [newSignal, onNewSignalConsumed]);
+  }, [newSignal, onNewSignalConsumed, onWorkbenchChange]);
+
+  // 视图被外部切走（如 CommandSearch 跳分类）→ 复位工作台态
+  useEffect(() => () => onWorkbenchChange(false), [onWorkbenchChange]);
+
+  const openWb = (s: Skill | null) => {
+    setWb({ skill: s });
+    onWorkbenchChange(true);
+  };
 
   let idx = 0;
 
@@ -171,10 +181,9 @@ export function CreationView({
         refresh={refresh}
         onExit={() => {
           setWb(null);
-          onDirtyChange(false);
+          onWorkbenchChange(false);
           refresh();
         }}
-        onDirtyChange={onDirtyChange}
       />
     );
   }
@@ -185,7 +194,7 @@ export function CreationView({
         title="创作"
         subtitle={`${authored.length} 个创作技能 · 草稿期建议留在 authored`}
       >
-        <button type="button" className="mbtn primary" onClick={() => setWb({ skill: null })}>
+        <button type="button" className="mbtn primary" onClick={() => openWb(null)}>
           <Sparkles className="h-3.5 w-3.5" />
           新建
         </button>
@@ -201,7 +210,7 @@ export function CreationView({
               index={idx++}
               layout="grid"
               busy={converting}
-              onClick={() => setWb({ skill: s })}
+              onClick={() => openWb(s)}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
@@ -217,7 +226,7 @@ export function CreationView({
               index={idx++}
               layout="list"
               busy={converting}
-              onClick={() => setWb({ skill: s })}
+              onClick={() => openWb(s)}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
