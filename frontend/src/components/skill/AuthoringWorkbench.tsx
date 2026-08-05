@@ -12,6 +12,7 @@ import {
   ScrollText,
   Settings,
   Sparkles,
+  StopCircle,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -225,6 +226,8 @@ export function AuthoringWorkbench({
   const [aiTopic, setAiTopic] = useState("");
   const [stream, setStream] = useState("");
   const [streaming, setStreaming] = useState(false);
+  // 用户「停止生成」的中止控制器：挂到 ref，供按钮 + 卸载时调用
+  const aiAbortRef = useRef<AbortController | null>(null);
   const [streamDone, setStreamDone] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const [llmReady, setLlmReady] = useState(true);
@@ -346,11 +349,15 @@ export function AuthoringWorkbench({
     setStreaming(true);
     setStreamDone(false);
     setStream("");
+    // 新建中止控制器：用户点「停止」或组件卸载时 abort
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
     try {
       const { finishReason } = await generateSkillMdStream(
         aiTopic.trim(),
         draft,
         (d) => setStream((s) => s + d),
+        controller.signal,
       );
       if (finishReason === "length") {
         toast.warning("模型输出被截断——换更短的主题重试");
@@ -358,11 +365,31 @@ export function AuthoringWorkbench({
         setStreamDone(true);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      // 用户主动停止：不是失败，保留已生成部分供预览
+      if (e instanceof DOMException && e.name === "AbortError") {
+        toast.info("已停止 AI 生成——已生成的部分保留在预览中");
+        setStreamDone(true);
+      } else {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setStreaming(false);
+      aiAbortRef.current = null;
     }
   };
+
+  // 点击「停止生成」
+  const handleStopAI = useCallback(() => {
+    aiAbortRef.current?.abort();
+  }, []);
+
+  // 组件卸载时中止未完成的 AI 生成，避免请求泄漏
+  useEffect(
+    () => () => {
+      aiAbortRef.current?.abort();
+    },
+    []
+  );
 
   // X4：应用到正文 + 表单回显（description 反解析）
   const applyStream = () => {
@@ -825,6 +852,18 @@ export function AuthoringWorkbench({
                     : "AI 生成完成——内容已流式预览，可应用到正文"}
                 </span>
                 <div className="flex-1" />
+                {streaming && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] !text-red-500 !border-red-400/60 hover:!bg-red-500/10"
+                    onClick={handleStopAI}
+                    title="停止生成（已生成部分保留在预览中）"
+                  >
+                    <StopCircle className="h-3 w-3" />
+                    停止
+                  </Button>
+                )}
                 {streamDone && (
                   <Button
                     size="sm"

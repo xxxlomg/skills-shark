@@ -8,6 +8,7 @@ import {
   Loader2,
   FolderSymlink,
   Save,
+  StopCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -78,6 +79,8 @@ export function DetailSheet({
   } | null>(null);
   // 防御锁：杜绝翻译重入（连点 / effect 误触发）
   const translatingRef = useRef(false);
+  // 用户「停止翻译」的中止控制器：挂到 abortRef，供按钮 + 卸载时调用
+  const translateAbortRef = useRef<AbortController | null>(null);
   // 流式节流：delta 高频到达，限频 ~10fps（100ms）。
   // setTimeout 节流（首帧立即、尾帧必达）：旧 rAF 时间闸在被跳过时
   // 不补调度，导致突发到达/流末尾内容永远不落地（流式不渲染的根因）。
@@ -112,6 +115,8 @@ export function DetailSheet({
   useEffect(
     () => () => {
       if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
+      // 组件卸载时中止未完成的翻译请求，避免泄漏
+      translateAbortRef.current?.abort();
     },
     []
   );
@@ -183,6 +188,9 @@ export function DetailSheet({
     setView("zh");
     streamingRef.current = { text: "", chunkIndex: 0, totalChunks: 0 };
     setStreaming(streamingRef.current);
+    // 新建中止控制器：用户点「停止翻译」或组件卸载时 abort
+    const controller = new AbortController();
+    translateAbortRef.current = controller;
     try {
       // 先读原文
       const rawContent = await readSkillFile(skill.source_path);
@@ -194,7 +202,8 @@ export function DetailSheet({
         (fullSoFar, chunkIndex, totalChunks) => {
           streamingRef.current = { text: fullSoFar, chunkIndex, totalChunks };
           flushStreaming();
-        }
+        },
+        controller.signal
       );
       // 翻译完成，重新加载译文
       const text = await loadTranslation(skill.id);
@@ -208,14 +217,26 @@ export function DetailSheet({
       toast.success(`翻译完成${result.titleZh ? `，标题：${result.titleZh}` : ""}`);
       onTranslateDone?.();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "未知错误";
-      toast.error(`翻译失败：${msg}`);
-      setStreaming(null);
+      // 用户主动停止：不是失败，提示「已停止」
+      if (err instanceof DOMException && err.name === "AbortError") {
+        toast.info("已停止翻译——已生成的部分不会保存");
+        setStreaming(null);
+      } else {
+        const msg = err instanceof Error ? err.message : "未知错误";
+        toast.error(`翻译失败：${msg}`);
+        setStreaming(null);
+      }
     } finally {
       setTranslating(false);
       translatingRef.current = false;
+      translateAbortRef.current = null;
     }
   }, [skill, onTranslateDone, flushStreaming]);
+
+  // 点击「停止翻译」
+  const handleStopTranslate = useCallback(() => {
+    translateAbortRef.current?.abort();
+  }, []);
 
   // 点击翻译按钮
   // P1 修复：不再依赖陈旧的 hasLLMKey 状态——用户在设置页保存 Key 后该状态不会自动
@@ -421,6 +442,19 @@ export function DetailSheet({
                   : skill.has_translation || skill.translation_lost
                     ? "重新翻译"
                     : "翻译"}
+              </button>
+            )}
+
+            {/* 停止翻译 — 仅流式翻译进行中显示，可主动终止大文档翻译 */}
+            {!isDeleted && translating && (
+              <button
+                type="button"
+                className="mbtn !border-red-400/60 !text-red-500 hover:!bg-red-500/10"
+                onClick={handleStopTranslate}
+                title="停止翻译（已生成的部分不会保存）"
+              >
+                <StopCircle className="h-3.5 w-3.5" />
+                停止
               </button>
             )}
 

@@ -36,11 +36,17 @@ description: 演示创作工作台 AI 创作链路。当需要验证 AI 生成�
 export async function generateSkillMdStream(
   topic: string,
   draft: WbDraft,
-  onDelta: (t: string) => void
+  onDelta: (t: string) => void,
+  /** 用户点「停止」时 abort（mock 与真实 LLM 路径都响应） */
+  abortSignal?: AbortSignal
 ): Promise<{ text: string; finishReason: string | null }> {
   if (isMockMode()) {
     const chunks = MOCK_SKILL_MD.match(/.{1,10}/gs) ?? [MOCK_SKILL_MD];
     for (const ch of chunks) {
+      if (abortSignal?.aborted) {
+        const e = new DOMException("AI 生成已取消", "AbortError");
+        throw e;
+      }
       onDelta(ch);
       await sleep(20);
     }
@@ -52,6 +58,7 @@ export async function generateSkillMdStream(
     config.apiKey,
     config.baseUrl,
     config.model,
-    onDelta
+    onDelta,
+    abortSignal
   );
 }
