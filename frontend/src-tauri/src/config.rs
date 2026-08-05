@@ -18,6 +18,7 @@ use tauri::Manager;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::cell::RefCell;
 
 /// 追加写调试日志到 _data/debug.log（release 也能查）
 pub fn debug_log(msg: &str) {
@@ -42,6 +43,14 @@ pub fn debug_log(msg: &str) {
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+// 单测线程局部覆盖：cargo test 每个 #[test] 跑在独立线程，各自 set 到自己的
+// 临时目录，互不污染（此前用全局 OnceLock，并行测试共享一个槽位，谁先设谁赢，
+// 导致数据目录相关测试互相踩踏——PLAN-09 P10b 新增数据目录测试时实锤）。
+// 生产代码从不 set 这个线程局部值，get_data_dir() 照常回落 OnceLock。
+thread_local! {
+    static TEST_DATA_DIR: RefCell<Option<PathBuf>> = RefCell::new(None);
+}
 
 /// 项目根（frontend/src-tauri 上两级 = skills-shark/）
 fn project_root() -> PathBuf {
@@ -136,13 +145,16 @@ fn migrate_legacy_data(target: &PathBuf) {
 
 /// 获取数据目录。init 前回退旧版项目 _data（保持旧行为不崩）。
 pub fn get_data_dir() -> PathBuf {
-    DATA_DIR.get().cloned().unwrap_or_else(legacy_data_dir)
+    TEST_DATA_DIR
+        .with(|d| d.borrow().clone())
+        .unwrap_or_else(|| DATA_DIR.get().cloned().unwrap_or_else(legacy_data_dir))
 }
 
-/// 单测专用：把 DATA_DIR 指到临时目录，避免测试触碰真实用户数据。
+/// 单测专用：把当前测试线程的数据目录指到临时目录，避免触碰真实用户数据。
+/// 线程局部覆盖 → 并行测试各自隔离，不再共享全局竞态。
 #[cfg(test)]
 pub fn set_data_dir_for_test(p: PathBuf) {
-    let _ = DATA_DIR.set(p);
+    TEST_DATA_DIR.with(|d| *d.borrow_mut() = Some(p));
 }
 
 /// 导入 skills 存放目录（PLAN-04 §3，Phase 1 接入扫描与 UI）

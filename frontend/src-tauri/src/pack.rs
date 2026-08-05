@@ -17,6 +17,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::import;
+use crate::translations;
 
 pub const FORMAT_VERSION: u32 = 1;
 /// 单次打包技能数上限（与 PLAN-05 §2.3 AI 输入预算对齐）
@@ -96,6 +97,9 @@ pub struct PackInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PackSkillInput {
     pub source_path: String,
+    /// 扫描结果的虚拟 skill_id（tool_id|rel），P10b 打包带译文时据此查译文
+    #[serde(default)]
+    pub skill_id: String,
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -103,6 +107,22 @@ pub struct PackSkillInput {
     pub description_zh: String,
     #[serde(default)]
     pub has_translation: bool,
+}
+
+/// P10b：i18n sidecar 的 meta（`i18n/<folder>/meta.json`）。
+/// 不含 source_path —— 导入方的主机路径不同，落盘时按新 skill_id 重算。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackI18nMeta {
+    #[serde(default)]
+    pub title_zh: String,
+    #[serde(default)]
+    pub source_hash: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub translated_at: String,
+    #[serde(default)]
+    pub scan_label: String,
 }
 
 /// zip 内 pack.json 探测结果（ImportDialog 分流用）
@@ -425,6 +445,7 @@ pub fn create_pack(
 
     let mut manifest_skills: Vec<PackSkillEntry> = Vec::new();
     let mut summary_inputs: Vec<(String, PackSkillInput)> = Vec::new();
+    let mut i18n_paths: Vec<String> = Vec::new();
     for (folder, src, s) in &placed {
         let dst = skills_root.join(folder);
         import::copy_dir_recursive(src, &dst)?;
@@ -441,6 +462,41 @@ pub fn create_pack(
                 .collect(),
         });
         summary_inputs.push((folder.clone(), (*s).clone()));
+
+        // P10b：已翻译技能 → 打包带双语译文 + meta（导入方立即可看译文）
+        if s.has_translation && !s.skill_id.is_empty() {
+            if let Some(bilingual) = translations::read_translated_content(&s.skill_id) {
+                if !bilingual.trim().is_empty() {
+                    let meta = translations::load_all_meta().get(&s.skill_id).cloned();
+                    let i18n_dir = tmp.join("i18n").join(folder);
+                    fs::create_dir_all(&i18n_dir).map_err(|e| e.to_string())?;
+                    fs::write(i18n_dir.join("bilingual.md"), &bilingual)
+                        .map_err(|e| e.to_string())?;
+                    let im = PackI18nMeta {
+                        title_zh: meta.as_ref().map(|m| m.title_zh.clone()).unwrap_or_default(),
+                        source_hash: meta
+                            .as_ref()
+                            .map(|m| m.source_hash.clone())
+                            .unwrap_or_default(),
+                        model: meta.as_ref().map(|m| m.model.clone()).unwrap_or_default(),
+                        translated_at: meta
+                            .as_ref()
+                            .map(|m| m.translated_at.clone())
+                            .unwrap_or_default(),
+                        scan_label: meta
+                            .as_ref()
+                            .map(|m| m.scan_label.clone())
+                            .unwrap_or_default(),
+                    };
+                    fs::write(
+                        i18n_dir.join("meta.json"),
+                        serde_json::to_string_pretty(&im).map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    i18n_paths.push(format!("i18n/{}", folder));
+                }
+            }
+        }
     }
 
     let manifest = PackManifest {
@@ -452,7 +508,7 @@ pub fn create_pack(
         created_at: chrono::Utc::now().to_rfc3339(),
         generator: GENERATOR.to_string(),
         summary: build_static_summary(name, author, &summary_inputs),
-        i18n: Vec::new(),
+        i18n: i18n_paths,
         skills: manifest_skills,
         validation_warnings,
     };
@@ -751,6 +807,35 @@ pub fn install_pack(pack_base: &Path, imported_base: &Path, id: &str) -> Result<
             return Err(format!("Pack 内缺少技能目录: {}", s.path));
         }
         import::copy_dir_recursive(&src, &target.join(folder))?;
+
+        // P10b：恢复 i18n —— 按导入后的新 skill_id 落盘译文 + 合并标题/描述
+        let i18n_dir = dir.join("i18n").join(folder);
+        if i18n_dir.join("bilingual.md").is_file() {
+            let bilingual = fs::read_to_string(i18n_dir.join("bilingual.md")).unwrap_or_default();
+            let meta: Option<PackI18nMeta> = fs::read_to_string(i18n_dir.join("meta.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok());
+            // 导入工具 id 固定 "imported"，rel = <stem>/<folder>
+            let new_skill_id = format!("imported|{}/{}", stem, folder);
+            let source_path = target
+                .join(folder)
+                .join("SKILL.md")
+                .to_string_lossy()
+                .to_string();
+            translations::restore_imported(
+                &new_skill_id,
+                &bilingual,
+                meta.as_ref().map(|m| m.title_zh.as_str()).unwrap_or(""),
+                &source_path,
+                meta.as_ref().map(|m| m.scan_label.as_str()).unwrap_or("导入"),
+                meta.as_ref().map(|m| m.source_hash.as_str()).unwrap_or(""),
+                meta.as_ref().map(|m| m.model.as_str()).unwrap_or(""),
+                meta.as_ref()
+                    .map(|m| m.translated_at.as_str())
+                    .unwrap_or(""),
+            )?;
+        }
+
         records.push(serde_json::json!({ "rel": folder, "folder": folder }));
     }
 
@@ -858,6 +943,7 @@ mod tests {
     fn input(dir: &Path, name: &str, desc: &str) -> PackSkillInput {
         PackSkillInput {
             source_path: dir.join("SKILL.md").to_string_lossy().to_string(),
+            skill_id: String::new(),
             name: name.to_string(),
             description: desc.to_string(),
             description_zh: String::new(),
@@ -927,6 +1013,72 @@ mod tests {
         // 再装一次 → stem 自动后缀
         install_pack(&import_base, &imported, "my-test-pack").unwrap();
         assert!(imported.join("My Test Pack-2/alpha/SKILL.md").is_file());
+    }
+
+    /// P10b 闭环：打包带译文 → 安装导入 → 导入方按新 skill_id 恢复译文 →
+    /// 立即可读（创建端与导入端各自指到同一临时数据目录）。
+    #[test]
+    fn pack_i18n_carry_and_restore_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 独立临时数据目录，绝不碰真实用户数据
+        crate::config::set_data_dir_for_test(tmp.path().join("data"));
+
+        let src_root = tmp.path().join("src");
+        let skill_dir = src_root.join("image-gen");
+        write_skill(&skill_dir, "image-gen", "generate images");
+        let source_path = skill_dir.join("SKILL.md").to_string_lossy().to_string();
+
+        // 造一条译文（skill_id = claude-code|image-gen）
+        let bilingual = "---\nname: image-gen\ndescription: 生成图片\n---\nbody\n";
+        crate::translations::save_translation(
+            "claude-code|image-gen",
+            bilingual,
+            &source_path,
+            "Claude Code",
+            "hash123",
+            "test-model",
+            "图像生成",
+        )
+        .unwrap();
+
+        // 打包（选中该已翻译技能）
+        let pack_base = tmp.path().join("data/packs");
+        let info = create_pack(
+            &pack_base,
+            "I18nPack",
+            "1.0.0",
+            "t",
+            &[PackSkillInput {
+                source_path: source_path.clone(),
+                skill_id: "claude-code|image-gen".to_string(),
+                name: "image-gen".to_string(),
+                description: "generate images".to_string(),
+                description_zh: "生成图片".to_string(),
+                has_translation: true,
+            }],
+            false,
+        )
+        .unwrap();
+        assert_eq!(info.id, "i18npack");
+        // 包内带双语 + meta
+        assert!(pack_base.join("i18npack/i18n/image-gen/bilingual.md").is_file());
+        assert!(pack_base.join("i18npack/i18n/image-gen/meta.json").is_file());
+        let m = read_manifest(&pack_base.join("i18npack")).unwrap();
+        assert_eq!(m.i18n, vec!["i18n/image-gen"]);
+
+        // 安装：译文按导入后的新 skill_id 恢复
+        let imported = tmp.path().join("data/imported");
+        install_pack(&pack_base, &imported, "i18npack").unwrap();
+        let new_id = "imported|I18nPack/image-gen";
+        let restored = crate::translations::read_translated_content(new_id).expect("译文应恢复");
+        assert_eq!(restored, bilingual);
+        let meta = crate::translations::load_all_meta().get(new_id).cloned().unwrap();
+        assert_eq!(meta.title_zh, "图像生成");
+        assert_eq!(meta.source_hash, "hash123");
+        assert!(
+            meta.source_path.ends_with("image-gen\\SKILL.md")
+                || meta.source_path.ends_with("image-gen/SKILL.md")
+        );
     }
 
     #[test]

@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
-import { Check, Loader2, PackagePlus, Search } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderTree,
+  Loader2,
+  PackagePlus,
+  Search,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,13 +33,78 @@ interface PackCreateDialogProps {
   onCreated: (info: PackInfo) => void;
 }
 
-/** 新建 Pack 对话框（PLAN-05 P1）：挑选技能 + 元信息 → 静态总结打包。 */
+/** P10a：树节点分组结果 —— 工具 →（可选）合集 → 技能 */
+interface ToolGroup {
+  key: string;
+  label: string;
+  collections: { key: string; label: string; skills: Skill[] }[];
+  loose: Skill[];
+}
+
+/** 复选小方块（跨层联动共用） */
+function TreeCheckbox({ on, onChange }: { on: boolean; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      aria-label="选择"
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+        on ? "border-primary bg-primary text-primary-foreground" : "border-border"
+      }`}
+    >
+      {on && <Check className="h-3 w-3" />}
+    </button>
+  );
+}
+
+/** 单个技能行：主=译名、副=原文件名（mono 恒显）、已翻译徽标 */
+function SkillRow({
+  s,
+  on,
+  onToggle,
+}: {
+  s: Skill;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent/40"
+    >
+      <TreeCheckbox on={on} onChange={onToggle} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">
+            {s.emoji ?? ""} {s.title_zh || s.name}
+          </span>
+          {s.has_translation && (
+            <span className="shrink-0 rounded border border-brand/40 bg-brand/10 px-1 py-px text-[10px] font-medium text-brand">
+              已翻译
+            </span>
+          )}
+        </span>
+        <span className="block truncate font-mono text-[11px] text-muted-foreground">
+          {s.folder_name}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** 新建 Pack 对话框（PLAN-05 P1）：挑选技能 + 元信息 → 静态总结打包。
+ *  P10a 升级：清单改为三层树（工具 → 合集 → 技能），主译名 + 原名恒显 + 已翻译徽标，
+ *  支持「仅已翻译」筛选与跨层联动勾选。 */
 export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialogProps) {
   const [name, setName] = useState("");
   const [ver, setVer] = useState("1.0.0");
   const [author, setAuthor] = useState("");
   const [query, setQuery] = useState("");
+  const [onlyTranslated, setOnlyTranslated] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 收起的合集 key 集合（默认全展开）
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // C4：校验门拒绝清单（force 逃生门的展示依据）
@@ -43,9 +117,10 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
   );
 
   const filtered = useMemo(() => {
+    const base = packable.filter((s) => !onlyTranslated || s.has_translation);
     const q = query.trim().toLowerCase();
-    if (!q) return packable;
-    return packable.filter(
+    if (!q) return base;
+    return base.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.title_zh.toLowerCase().includes(q) ||
@@ -54,15 +129,61 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
         s.description_zh.toLowerCase().includes(q) ||
         s.scan_label.toLowerCase().includes(q)
     );
-  }, [packable, query]);
+  }, [packable, query, onlyTranslated]);
+
+  // 三层树：工具 →（合集）→ 技能（无合集省略合集层）
+  const tree = useMemo(() => {
+    const toolMap = new Map<string, Skill[]>();
+    for (const s of filtered) {
+      const key = s.scan_label || "未分类";
+      const arr = toolMap.get(key) ?? [];
+      arr.push(s);
+      toolMap.set(key, arr);
+    }
+    const groups: ToolGroup[] = [];
+    for (const [key, skillsInTool] of toolMap) {
+      const collMap = new Map<string, Skill[]>();
+      const loose: Skill[] = [];
+      for (const s of skillsInTool) {
+        if (s.parent_collection) {
+          const arr = collMap.get(s.parent_collection) ?? [];
+          arr.push(s);
+          collMap.set(s.parent_collection, arr);
+        } else {
+          loose.push(s);
+        }
+      }
+      groups.push({
+        key,
+        label: key,
+        collections: [...collMap.entries()].map(([ckey, wield]) => ({
+          key: `${key}::${ckey}`,
+          label: ckey,
+          skills: wield,
+        })),
+        loose,
+      });
+    }
+    return groups;
+  }, [filtered]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  /** 跨层联动：整组勾选/取消（工具或合集共用） */
+  const toggleList = (list: Skill[]) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const all = list.length > 0 && list.every((s) => selected.has(s.id));
+      for (const s of list) {
+        if (all) next.delete(s.id);
+        else next.add(s.id);
       }
       return next;
     });
@@ -74,14 +195,26 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
   const toggleAll = () => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        filtered.forEach((s) => next.delete(s.id));
-      } else {
-        filtered.forEach((s) => next.add(s.id));
-      }
+      if (allFilteredSelected) filtered.forEach((s) => next.delete(s.id));
+      else filtered.forEach((s) => next.add(s.id));
       return next;
     });
   };
+
+  const toggleCollapse = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  // 已选技能中是否含译文 → 提示「包将携带译文」
+  const selectedHasTranslation = useMemo(
+    () => packable.some((s) => selected.has(s.id) && s.has_translation),
+    [packable, selected]
+  );
 
   const handleCreate = async (force = false) => {
     setBusy(true);
@@ -92,6 +225,7 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
         .filter((s) => selected.has(s.id))
         .map((s) => ({
           source_path: s.source_path,
+          skill_id: s.id,
           name: s.name,
           description: s.description,
           description_zh: s.description_zh,
@@ -173,7 +307,7 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
             />
           </div>
 
-          <div className="flex shrink-0 items-center justify-between text-xs text-muted-foreground">
+          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -183,53 +317,121 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
               />
               全选当前列表
             </label>
-            <span>已选 {selected.size} / {packable.length}</span>
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={onlyTranslated}
+                onChange={(e) => setOnlyTranslated(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[var(--brand)]"
+              />
+              仅已翻译
+            </label>
+            <span className="ml-auto">已选 {selected.size} / {packable.length}</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/50">
-            <ul className="divide-y divide-border/40">
-              {filtered.map((s) => {
-                const on = selected.has(s.id);
-                return (
-                  <li key={s.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(s.id)}
-                      className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
-                    >
-                      <span
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                          on
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border"
-                        }`}
-                      >
-                        {on && <Check className="h-3 w-3" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {s.emoji ?? ""} {s.title_zh || s.name}
-                          </span>
-                          <span className="shrink-0 rounded border border-border/60 px-1.5 py-px text-[10px] text-muted-foreground">
-                            {s.scan_label}
-                          </span>
+          {/* P10a：三层树清单 */}
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/50 p-1.5">
+            {tree.length === 0 ? (
+              <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                没有匹配的技能
+              </p>
+            ) : (
+              <div className="space-y-0.5">
+                {tree.map((tool) => {
+                  const toolSkills = [
+                    ...tool.collections.flatMap((c) => c.skills),
+                    ...tool.loose,
+                  ];
+                  const toolOn =
+                    toolSkills.length > 0 &&
+                    toolSkills.every((s) => selected.has(s.id));
+                  const toolSome = toolSkills.some((s) => selected.has(s.id));
+                  return (
+                    <div key={tool.key}>
+                      {/* 工具行 */}
+                      <div className="flex items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-accent/40">
+                        <TreeCheckbox on={toolOn} onChange={() => toggleList(toolSkills)} />
+                        <FolderTree
+                          className={`h-3.5 w-3.5 shrink-0 ${toolSome ? "text-brand" : "text-muted-foreground"}`}
+                        />
+                        <span className="truncate text-sm font-semibold">
+                          {tool.label}
                         </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {s.description_zh || s.description || "（无描述）"}
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {toolSkills.length}
                         </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-              {filtered.length === 0 && (
-                <li className="px-3 py-8 text-center text-sm text-muted-foreground">
-                  没有匹配的技能
-                </li>
-              )}
-            </ul>
+                      </div>
+                      <div className="ml-5 space-y-0.5 border-l border-border/40 pl-2">
+                        {tool.collections.map((coll) => {
+                          const collOn =
+                            coll.skills.length > 0 &&
+                            coll.skills.every((s) => selected.has(s.id));
+                          const collSome = coll.skills.some((s) => selected.has(s.id));
+                          const isCollapsed = collapsed.has(coll.key);
+                          return (
+                            <div key={coll.key}>
+                              {/* 合集行 */}
+                              <div className="flex items-center gap-1.5 rounded px-1 py-1 transition-colors hover:bg-accent/40">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCollapse(coll.key)}
+                                  aria-label={isCollapsed ? "展开" : "收起"}
+                                  className="shrink-0 text-muted-foreground hover:text-text-primary"
+                                >
+                                  {isCollapsed ? (
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                                <TreeCheckbox on={collOn} onChange={() => toggleList(coll.skills)} />
+                                <Folder
+                                  className={`h-3.5 w-3.5 shrink-0 ${collSome ? "text-brand" : "text-muted-foreground"}`}
+                                />
+                                <span className="truncate text-sm font-medium">
+                                  {coll.label}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  {coll.skills.length}
+                                </span>
+                              </div>
+                              {!isCollapsed && (
+                                <div className="ml-5 space-y-0.5">
+                                  {coll.skills.map((s) => (
+                                    <SkillRow
+                                      key={s.id}
+                                      s={s}
+                                      on={selected.has(s.id)}
+                                      onToggle={() => toggle(s.id)}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {tool.loose.map((s) => (
+                          <SkillRow
+                            key={s.id}
+                            s={s}
+                            on={selected.has(s.id)}
+                            onToggle={() => toggle(s.id)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
+
+          {selectedHasTranslation && (
+            <p className="flex shrink-0 items-center gap-1.5 text-[11px] text-brand">
+              <Check className="h-3 w-3" />
+              已选技能中含译文，打包将自动携带——导入方立即可看中文译文
+            </p>
+          )}
 
           {failures && failures.length > 0 && (
             <div className="shrink-0 space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">

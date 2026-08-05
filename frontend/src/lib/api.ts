@@ -439,6 +439,8 @@ export interface PackInfo {
 /** 打包输入：source_path = SKILL.md 绝对路径 */
 export interface PackSkillInput {
   source_path: string;
+  /** 扫描结果的虚拟 skill_id（P10b 打包带译文时后端据此查译文） */
+  skill_id: string;
   name: string;
   description: string;
   description_zh: string;
