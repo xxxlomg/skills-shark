@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { isMockMode } from "@/mock/mode";
 import { Toaster } from "@/components/ui/sonner";
 import { BackgroundFX } from "@/components/layout/BackgroundFX";
 import { Topbar } from "@/components/layout/Topbar";
@@ -196,6 +197,9 @@ function App() {
 
   // 拖拽 zip / skillpack 到窗口任意位置 → 打开导入对话框
   useEffect(() => {
+    // 无 tauri 环境（vite dev / mock 预览）下 listen 会因缺少 __TAURI_INTERNALS__
+    // 同步抛错而中止整个 commit，导致应用挂载失败——先短路跳过。
+    if (isMockMode()) return;
     let unlisten: (() => void) | undefined;
     listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
       const file = e.payload.paths.find((p) => {

@@ -1,4 +1,4 @@
-import { Github, GitFork } from "lucide-react";
+import { GitBranch, GitFork } from "lucide-react";
 
 /** 页脚（PLAN-09 P6）：产品名 + 双仓库链接 + 作者署名 */
 function FooterLink({
@@ -34,7 +34,7 @@ export function Footer() {
           </p>
           <p className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
             <FooterLink href="https://github.com/xxxlomg">
-              <Github className="h-3.5 w-3.5" />
+              <GitBranch className="h-3.5 w-3.5" />
               GitHub
             </FooterLink>
             <FooterLink href="https://gitee.com/xxxlomg">
