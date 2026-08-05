@@ -218,18 +218,28 @@ export function DetailSheet({
   }, [skill, onTranslateDone, flushStreaming]);
 
   // 点击翻译按钮
-  const handleTranslateClick = useCallback(() => {
-    if (!hasLLMKey) {
+  // P1 修复：不再依赖陈旧的 hasLLMKey 状态——用户在设置页保存 Key 后该状态不会自动
+  // 刷新，导致「已配置却仍提示未配置」的误报。改为点击时实时读取配置再判断；
+  // requireLLMConfig()（client 端）仍是最终防线，二者保持一致。
+  const handleTranslateClick = useCallback(async () => {
+    let cfg = { hasKey: false };
+    try {
+      cfg = await loadLLMConfig();
+    } catch {
+      // 读取失败按未配置处理，弹提示引导进设置
+    }
+    if (!cfg.hasKey) {
       toast.error("请先在设置中配置 API Key");
       onSettingsOpen?.();
       return;
     }
+    setHasLLMKey(true);
     if (skill?.has_translation) {
       setShowReTranslateConfirm(true);
     } else {
-      doTranslate();
+      void doTranslate();
     }
-  }, [hasLLMKey, skill, doTranslate, onSettingsOpen]);
+  }, [skill, doTranslate, onSettingsOpen]);
 
   const handleConfirmReTranslate = useCallback(() => {
     setShowReTranslateConfirm(false);

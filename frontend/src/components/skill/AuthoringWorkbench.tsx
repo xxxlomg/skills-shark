@@ -874,7 +874,7 @@ export function AuthoringWorkbench({
                 <PenLine className="h-3.5 w-3.5 text-primary" />
                 我的描述
               </SheetTitle>
-              <Tip side="bottom" label={GUIDELINES}>
+              <Tip side="bottom" hoverOnly label={GUIDELINES}>
                 <button
                   type="button"
                   aria-label="写作准则"

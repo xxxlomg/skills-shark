@@ -457,6 +457,10 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                   )}
                 </div>
 
+                <p className="text-[11px] text-text-tertiary">
+                  💡「测试连接」仅校验配置，需点底部「保存配置」后对翻译生效。
+                </p>
+
                 <p className="text-xs text-muted-foreground">
                   ⚠️ API Key 仅保存在本机配置文件，不会上传到任何外部服务。
                 </p>
