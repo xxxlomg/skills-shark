@@ -320,11 +320,7 @@ function AuthoredCard({
           <EllipsisVertical className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenuItem onSelect={onClick}>
-          <PenLine className="h-3.5 w-3.5" />
-          编辑
-        </DropdownMenuItem>
+      <DropdownMenuContent align="start" collisionPadding={8} onClick={(e) => e.stopPropagation()}>
         <DropdownMenuItem onSelect={onRename}>
           <Pencil className="h-3.5 w-3.5" />
           修改 skills 名称

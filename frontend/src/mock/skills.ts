@@ -73,6 +73,8 @@ export const MOCK_SKILLS: Skill[] = [
   // B4 聚合样本：commit-msg 同名双装，此条为非代表副本（UI 折叠，仅 sync_deleted 保留）
   mk("x5", "commit-msg", "✍️", "依据 diff 生成 Conventional Commits 信息", "Codex", { zh: "提交信息生成", trans: true, tool: "codex", reps: false, others: ["claude-code"] }),
 
-  // authored（创作页卡片样本，UI 反馈 2026-08-05）
+  // authored（创作页卡片样本，UI 反馈 2026-08-05；a2/a3 供右缘菜单自适应实测）
   mk("a1", "my-draft-skill", "🌱", "草稿期技能：先命名后补描述的创作样本", "Authored", { zh: "我的草稿", tool: "authored" }),
+  mk("a2", "code-review-helper", "🔍", "按团队清单审查 diff，输出分级意见", "Authored", { tool: "authored" }),
+  mk("a3", "release-note-writer", "📝", "从 commit 历史生成结构化发布说明", "Authored", { tool: "authored" }),
 ];
