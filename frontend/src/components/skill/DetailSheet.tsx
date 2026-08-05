@@ -22,7 +22,6 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/common/MarkdownRenderer";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { ValidationBadges } from "@/components/skill/ValidationBadges";
 import { parseBilingual, type BilingualContent } from "@/lib/bilingual";
 import {
   translateSkill,
@@ -369,12 +368,9 @@ export function DetailSheet({
                 ))}
               </div>
             )}
-            {/* C3 兼容矩阵徽章（PLAN-06 §3.6）：诊断模式，2 平台 verdict */}
-            {!isDeleted && (
-              <div className="mt-1.5">
-                <ValidationBadges skillDir={skill.skill_dir} />
-              </div>
-            )}
+            {/* C3 兼容矩阵徽章已移除（PLAN-09 拍板方案 A）：
+                「Claude/Codex 能用」是基础能力而非卖点，常亮徽章是噪音。
+                转换功能保留（必须项），不再以徽章形式展示。 */}
             <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
               {displayDesc || "无描述"}
             </p>
