@@ -16,6 +16,7 @@ import { CategoryView } from "@/components/skill/CategoryView";
 import { PacksView } from "@/components/skill/PacksView";
 import { PackCreateDialog } from "@/components/skill/PackCreateDialog";
 import { CreationView } from "@/components/skill/CreationView";
+import { ManualView } from "@/components/manual/ManualView";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type { PackAction } from "@/components/skill/PackCard";
 import { DetailSheet } from "@/components/skill/DetailSheet";
@@ -475,6 +476,8 @@ function App() {
               onWorkbenchChange={setWbActive}
               onOpenSettings={() => setSettingsOpen(true)}
             />
+          ) : tab === "manual" ? (
+            <ManualView />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
           ) : loading ? (
