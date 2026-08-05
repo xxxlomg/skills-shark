@@ -53,6 +53,15 @@ const HEALTH_META: Record<
   },
 };
 
+/** P9：台账分类筛选 */
+type LedgerFilter = "all" | "abnormal" | "link" | "copy";
+const LEDGER_FILTERS: { id: LedgerFilter; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "abnormal", label: "仅异常" },
+  { id: "link", label: "仅链接" },
+  { id: "copy", label: "仅副本" },
+];
+
 /**
  * Hub 页（PLAN-06 §2.7/§2.8）：引用台账总览 + 全模式操作。
  * 账本（links.json）是索引，文件系统是真相；诊断由后端 hub_links_status 逐条对账。
@@ -75,6 +84,8 @@ export function HubView({
     | { kind: "rebuild"; link: LinkStatus }
     | null
   >(null);
+  // P9：台账分类筛选
+  const [filter, setFilter] = useState<LedgerFilter>("all");
 
   const refreshStatuses = useCallback(async () => {
     try {
@@ -108,6 +119,31 @@ export function HubView({
     () => statuses.filter((s) => s.health !== "normal").length,
     [statuses]
   );
+
+  // P9：按筛选条件过滤后的台账
+  const filtered = useMemo(
+    () =>
+      statuses.filter((s) => {
+        if (filter === "abnormal") return s.health !== "normal";
+        if (filter === "link") return s.mode === "link";
+        if (filter === "copy") return s.mode === "copy";
+        return true;
+      }),
+    [statuses, filter]
+  );
+
+  // P9：按落点工具分组（组序按工具显示名；组内保持台账顺序）
+  const groups = useMemo(() => {
+    const map = new Map<string, LinkStatus[]>();
+    for (const s of filtered) {
+      const arr = map.get(s.target_tool) ?? [];
+      arr.push(s);
+      map.set(s.target_tool, arr);
+    }
+    return [...map.entries()].sort((a, b) =>
+      (toolNames[a[0]] ?? a[0]).localeCompare(toolNames[b[0]] ?? b[0])
+    );
+  }, [filtered, toolNames]);
 
   const doAction = useCallback(
     async (p: NonNullable<typeof pending>) => {
@@ -204,6 +240,11 @@ export function HubView({
         <span className="truncate font-display text-[14.5px] font-semibold text-text-primary">
           {s.skill_name}
         </span>
+        {/* P4：去向工具醒目徽标（一眼看出链接落去了哪个工具） */}
+        <span className="flex shrink-0 items-center gap-0.5 rounded-md border border-brand/40 bg-brand/10 px-1.5 py-[1px] text-[10.5px] font-medium text-brand">
+          <FolderSymlink className="h-3 w-3" />
+          {toolNames[s.target_tool] ?? s.target_tool}
+        </span>
         <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-secondary">
           {s.mode === "link" ? "链接" : "副本"}
         </span>
@@ -241,6 +282,27 @@ export function HubView({
     </>
   );
 
+  /** P9：分组头部（工具名 + 条数 + 健康汇总） */
+  const renderGroupHeader = (toolId: string, items: LinkStatus[]) => {
+    const abnormal = items.filter((s) => s.health !== "normal").length;
+    return (
+      <div className="mb-2.5 flex flex-wrap items-center gap-2">
+        <FolderSymlink className="h-4 w-4 text-brand" />
+        <span className="font-display text-[14px] font-semibold text-text-primary">
+          {toolNames[toolId] ?? toolId}
+        </span>
+        <span className="rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-secondary">
+          {items.length} 条
+        </span>
+        {abnormal > 0 && (
+          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-[2px] text-[10.5px] text-amber-600 dark:bg-amber-950/30">
+            {abnormal} 异常
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="pt-6">
       {/* 头部 */}
@@ -270,7 +332,27 @@ export function HubView({
         <LayoutToggle value={layout} onChange={onLayoutChange} />
       </div>
 
-      {/* 列表 */}
+      {/* P9：分类筛选 */}
+      {statuses.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          {LEDGER_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
+                filter === f.id
+                  ? "border-brand/50 bg-brand/10 font-medium text-brand"
+                  : "border-stroke bg-glass text-text-secondary hover:bg-glass-2 hover:text-text-primary"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 引用台账（按落点工具分组） */}
       {loading ? (
         <div className="glass-card flex items-center justify-center gap-2 p-10 text-[13px] text-text-tertiary">
           <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
@@ -283,43 +365,58 @@ export function HubView({
             点击「新建引用」，把技能链接或复制到 AI 工具的 skills 目录。
           </p>
         </div>
-      ) : layout === "grid" ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {statuses.map((s) => {
-            const busy = actingId === s.id;
-            return (
-              <div
-                key={s.id}
-                className="glass-card flex flex-col gap-2.5 px-[18px] py-[16px]"
-              >
-                {renderNameRow(s)}
-                <div className="min-w-0">{renderPathRow(s)}</div>
-                <div className="mt-auto flex items-center gap-1.5 pt-1">
-                  {renderActions(s, busy)}
-                </div>
-              </div>
-            );
-          })}
+      ) : filtered.length === 0 ? (
+        <div className="glass-card p-10 text-center">
+          <p className="text-[13.5px] text-text-secondary">
+            没有符合当前筛选的记录
+          </p>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {statuses.map((s) => {
-            const busy = actingId === s.id;
-            return (
-              <div
-                key={s.id}
-                className="glass-card flex flex-wrap items-center gap-x-4 gap-y-2 px-[18px] py-[14px]"
-              >
-                {renderNameRow(s)}
-                <div className="min-w-0 flex-1 basis-full lg:basis-auto">
-                  {renderPathRow(s)}
+        <div className="space-y-7">
+          {groups.map(([toolId, items]) => (
+            <section key={toolId}>
+              {renderGroupHeader(toolId, items)}
+              {layout === "grid" ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {items.map((s) => {
+                    const busy = actingId === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        className="glass-card flex flex-col gap-2.5 px-[18px] py-[16px]"
+                      >
+                        {renderNameRow(s)}
+                        <div className="min-w-0">{renderPathRow(s)}</div>
+                        <div className="mt-auto flex items-center gap-1.5 pt-1">
+                          {renderActions(s, busy)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {renderActions(s, busy)}
+              ) : (
+                <div className="space-y-2.5">
+                  {items.map((s) => {
+                    const busy = actingId === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        className="glass-card flex flex-wrap items-center gap-x-4 gap-y-2 px-[18px] py-[14px]"
+                      >
+                        {renderNameRow(s)}
+                        <div className="min-w-0 flex-1 basis-full lg:basis-auto">
+                          {renderPathRow(s)}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {renderActions(s, busy)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            );
-          })}
+              )}
+            </section>
+          ))}
         </div>
       )}
 
