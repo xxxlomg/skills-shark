@@ -50,7 +50,6 @@ import {
   repoSetup,
   savePublishRepo,
   gitStatus,
-  getDownloadDir,
   setDownloadDir,
 } from "@/lib/api";
 import type { GitStatusInfo } from "@/lib/api";

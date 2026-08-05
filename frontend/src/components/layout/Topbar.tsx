@@ -1,7 +1,26 @@
-import { Search, RefreshCw, Sun, Moon, Settings } from "lucide-react";
+import {
+  Search,
+  RefreshCw,
+  Sun,
+  Moon,
+  Settings,
+  CircleHelp,
+  BookOpen,
+  ExternalLink,
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import sharkTile from "@/assets/brand/shark-tile.png";
 import { Tip } from "@/components/common/Tip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { LINKS } from "@/lib/links";
+import { APP_VERSION } from "@/lib/version";
 
 interface TopbarProps {
   totalSkills: number;
@@ -9,6 +28,8 @@ interface TopbarProps {
   onSearchClick: () => void;
   onSync: () => void;
   onOpenSettings: () => void;
+  /** 打开使用手册白皮书面（PLAN-10 P1） */
+  onOpenManual: () => void;
 }
 
 /**
@@ -21,6 +42,7 @@ export function Topbar({
   onSearchClick,
   onSync,
   onOpenSettings,
+  onOpenManual,
 }: TopbarProps) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== "light";
@@ -115,6 +137,41 @@ export function Topbar({
             <Settings className="h-[18px] w-[18px]" />
           </button>
         </Tip>
+
+        {/* 关于 / 帮助（PLAN-10 P1）：版本、仓库链接、使用手册 */}
+        <DropdownMenu>
+          <Tip label="关于 SkillShark">
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="iconbtn" aria-label="关于 SkillShark">
+                <CircleHelp className="h-[18px] w-[18px]" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tip>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>
+              SkillShark{" "}
+              <span className="font-mono text-text-tertiary">v{APP_VERSION}</span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <a href={LINKS.githubRepo} target="_blank" rel="noopener noreferrer">
+                <ExternalLink />
+                GitHub 仓库
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={LINKS.giteeRepo} target="_blank" rel="noopener noreferrer">
+                <ExternalLink />
+                Gitee 仓库
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onOpenManual}>
+              <BookOpen />
+              使用手册
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

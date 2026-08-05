@@ -17,7 +17,7 @@ import { CategoryView } from "@/components/skill/CategoryView";
 import { PacksView } from "@/components/skill/PacksView";
 import { PackCreateDialog } from "@/components/skill/PackCreateDialog";
 import { CreationView } from "@/components/skill/CreationView";
-import { ManualView } from "@/components/manual/ManualView";
+import { ManualPage } from "@/components/manual/ManualPage";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type { PackAction } from "@/components/skill/PackCard";
 import { DetailSheet } from "@/components/skill/DetailSheet";
@@ -63,6 +63,8 @@ function App() {
 
   const [tab, setTab] = useState<ViewId>(DEFAULT_VIEW);
   const [view, setView] = useState<View>({ type: "home" });
+  // PLAN-10 P1：使用手册白皮书面（全屏覆盖层，右上角「关于」菜单进入）
+  const [manualOpen, setManualOpen] = useState(false);
   const [layout, setLayout] = useState<LayoutMode>(readLayout);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -421,6 +423,7 @@ function App() {
           onSearchClick={() => setCmdkOpen(true)}
           onSync={handleSync}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenManual={() => setManualOpen(true)}
         />
       )}
 
@@ -480,8 +483,6 @@ function App() {
               onWorkbenchChange={setWbActive}
               onOpenSettings={() => setSettingsOpen(true)}
             />
-          ) : tab === "manual" ? (
-            <ManualView />
           ) : error ? (
             <EmptyState hasError errorMessage={error} />
           ) : loading ? (
@@ -528,6 +529,9 @@ function App() {
       </main>
 
       {!wbActive && <Footer />}
+
+      {/* PLAN-10 P1：使用手册白皮书面（全屏覆盖层） */}
+      {manualOpen && <ManualPage onClose={() => setManualOpen(false)} />}
 
       <DetailSheet
         skill={liveSelectedSkill}

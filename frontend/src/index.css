@@ -728,6 +728,13 @@
 }
 .md-content a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
 .md-content a:hover { border-bottom-color: var(--accent); }
+.md-content img {
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+}
 .md-content hr { border: none; border-top: 1px solid var(--stroke); margin: 16px 0; }
 .md-content strong { color: var(--text); font-weight: 600; }
 

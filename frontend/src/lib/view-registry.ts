@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Package, FolderSymlink, PenLine, type LucideIcon } from "lucide-react";
+import { Boxes, Package, FolderSymlink, PenLine, type LucideIcon } from "lucide-react";
 
 /**
  * 视图注册表（PLAN-06 §7.6 导航结构插槽）
@@ -10,9 +10,11 @@ import { BookOpen, Boxes, Package, FolderSymlink, PenLine, type LucideIcon } fro
  *
  * 渲染分发在 App.tsx 的 composition root（按 id 查 RENDERERS 表），
  * 入口位置（Tab / 顶栏按钮 / 详情页内）对视图实现透明。
+ *
+ * PLAN-10 P1：使用手册移出 Tab，改为右上角「关于」菜单入口的白皮书全屏页。
  */
 
-export type ViewId = "lib" | "packs" | "hub" | "create" | "manual";
+export type ViewId = "lib" | "packs" | "hub" | "create";
 
 export interface ViewDef {
   id: ViewId;
@@ -27,7 +29,6 @@ const REGISTRY: readonly ViewDef[] = [
   { id: "packs", label: "Packs", icon: Package, weight: 10 },
   { id: "hub", label: "Hub", icon: FolderSymlink, weight: 20 },
   { id: "create", label: "创作", icon: PenLine, weight: 30 },
-  { id: "manual", label: "使用手册", icon: BookOpen, weight: 40 },
 ] as const satisfies readonly ViewDef[];
 
 export const VIEW_REGISTRY: ViewDef[] = [...REGISTRY].sort(

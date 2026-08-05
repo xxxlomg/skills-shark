@@ -12,9 +12,14 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** 行内 Markdown（code / bold / link） */
+/** 行内 Markdown（image / code / bold / link） */
 export function inlineMd(text: string): string {
   return escapeHtml(text)
+    // 图片先于链接处理，避免 ![alt](url) 被链接规则截半
+    .replace(
+      /!\[([^\]]*)\]\(([^)\s]+)\)/g,
+      '<img src="$2" alt="$1" loading="lazy" />',
+    )
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(
