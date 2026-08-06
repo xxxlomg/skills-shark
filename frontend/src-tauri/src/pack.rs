@@ -611,6 +611,34 @@ pub fn delete_pack(base: &Path, id: &str) -> Result<(), String> {
     fs::remove_dir_all(&dir).map_err(|e| format!("删除失败: {}", e))
 }
 
+/// 重命名 Pack：更新 pack.json 的 name 并重渲染 README（README 由 manifest 派生）。
+pub fn rename_pack(base: &Path, id: &str, new_name: &str) -> Result<PackInfo, String> {
+    let dir = base.join(id);
+    if !dir.join("pack.json").is_file() {
+        return Err(format!("Pack 不存在: {}", id));
+    }
+    let name = new_name.trim();
+    if name.is_empty() {
+        return Err("名称不能为空".to_string());
+    }
+    if name.chars().count() > 80 {
+        return Err("名称过长（最多 80 字符）".to_string());
+    }
+    let mut m = read_manifest(&dir)?;
+    m.name = name.to_string();
+    fs::write(
+        dir.join("pack.json"),
+        serde_json::to_string_pretty(&m).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("pack.json 写入失败: {}", e))?;
+    fs::write(dir.join("README.md"), render_readme(&m)).map_err(|e| format!("README 写入失败: {}", e))?;
+    crate::config::debug_log(&format!(
+        "pack_rename: id={} old->new 已写入 name={}",
+        id, name
+    ));
+    Ok(to_info(&m))
+}
+
 // ---------------------------------------------------------------------------
 // 导出（canonical → .skillpack zip）
 // ---------------------------------------------------------------------------
@@ -1401,5 +1429,40 @@ mod tests {
         let v2 = serde_json::to_value(PackCreateError::msg("boom")).unwrap();
         assert_eq!(v2["kind"], "message");
         assert_eq!(v2["message"], "boom");
+    }
+
+    #[test]
+    fn rename_pack_updates_name_and_readme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_root = tmp.path().join("src");
+        write_skill(&src_root.join("alpha"), "alpha", "desc alpha");
+        let pack_base = tmp.path().join("packs");
+        create_pack(
+            &pack_base,
+            "Old Name",
+            "1.0.0",
+            "tester",
+            &[input(&src_root.join("alpha"), "alpha", "desc alpha")],
+            false,
+        )
+        .unwrap();
+
+        // 改名
+        let info = rename_pack(&pack_base, "old-name", "New Name").unwrap();
+        assert_eq!(info.name, "New Name");
+        assert_eq!(info.id, "old-name");
+
+        // pack.json 与 README 同步更新
+        let m = read_manifest(&pack_base.join("old-name")).unwrap();
+        assert_eq!(m.name, "New Name");
+        let readme = fs::read_to_string(pack_base.join("old-name/README.md")).unwrap();
+        assert!(readme.starts_with("# New Name"));
+
+        // 列表反映新名
+        assert_eq!(list_packs(&pack_base)[0].name, "New Name");
+
+        // 名称校验：空名 / 不存在
+        assert!(rename_pack(&pack_base, "old-name", "   ").is_err());
+        assert!(rename_pack(&pack_base, "nope", "X").is_err());
     }
 }

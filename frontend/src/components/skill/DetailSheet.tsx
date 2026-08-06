@@ -43,8 +43,6 @@ interface DetailSheetProps {
   onTranslateDone?: () => void;
   /** 引用到其他工具（PLAN-06 §2.8，B5） */
   onLinkSkill?: (skill: Skill) => void;
-  /** 工具 id → 显示名（B4 徽标用；缺省回退原始 id） */
-  toolNames?: Record<string, string>;
   /** C10：frontmatter 编辑后刷新列表 */
   onEdited?: () => void;
 }
@@ -56,7 +54,6 @@ export function DetailSheet({
   onSettingsOpen,
   onTranslateDone,
   onLinkSkill,
-  toolNames,
   onEdited,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
@@ -352,20 +349,14 @@ export function DetailSheet({
                 </Badge>
               </div>
             )}
-            {/* B4 聚合徽标：junction 落点 + 同名技能的其他出处 */}
-            {(skill.hub_linked || skill.other_sources.length > 0) && (
+            {/* B4 聚合徽标：junction 落点（同见于多工具的兼容徽章已移除——
+                跨工具可用是默认能力，非展示项） */}
+            {skill.hub_linked && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {skill.hub_linked && (
-                  <Badge variant="secondary" className="text-[11px]">
-                    <FolderSymlink className="mr-1 h-3 w-3" />
-                    Hub 链接落点
-                  </Badge>
-                )}
-                {skill.other_sources.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[11px]">
-                    同见于 {toolNames?.[t] ?? t}
-                  </Badge>
-                ))}
+                <Badge variant="secondary" className="text-[11px]">
+                  <FolderSymlink className="mr-1 h-3 w-3" />
+                  Hub 链接落点
+                </Badge>
               </div>
             )}
             {/* C3 兼容矩阵徽章已移除（PLAN-09 拍板方案 A）：

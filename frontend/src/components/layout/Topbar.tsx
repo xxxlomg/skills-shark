@@ -64,9 +64,6 @@ export function Topbar({
           <h1 className="font-display text-[17px] font-semibold leading-none tracking-[0.2px] text-text-primary">
             SkillsShark
           </h1>
-          <p className="mt-[3px] text-[11.5px] leading-none text-text-secondary">
-            本地技能管理与翻译
-          </p>
         </div>
       </div>
 

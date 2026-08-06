@@ -1,6 +1,12 @@
 import { GitBranch, GitFork } from "lucide-react";
+import { LINKS } from "@/lib/links";
 
-/** 页脚（PLAN-09 P6）：产品名 + 双仓库链接 + 作者署名 */
+/** 页脚（PLAN-09 P6）：产品名 + 双仓库链接 + 作者署名
+ *
+ * 两种形态：
+ *  - 默认（顶栏模式）：页面底部横排
+ *  - compact（侧栏模式，PLAN-10）：紧凑纵向，垫在侧栏最底部
+ */
 function FooterLink({
   href,
   children,
@@ -20,7 +26,37 @@ function FooterLink({
   );
 }
 
-export function Footer() {
+export function Footer({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <footer className="px-1 pt-2 text-center">
+        <p className="text-[10.5px] leading-snug text-text-tertiary">
+          <span className="font-medium text-text-secondary">SkillShark</span>
+          {" · "}
+          <a
+            href="https://qwenpaw.agentscope.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors hover:text-primary"
+          >
+            Powered by QwenPaw
+          </a>
+        </p>
+        <p className="mt-1 flex items-center justify-center gap-2.5 text-[10.5px] text-text-tertiary">
+          <FooterLink href={LINKS.githubRepo}>
+            <GitBranch className="h-3 w-3" />
+            GitHub
+          </FooterLink>
+          <FooterLink href={LINKS.giteeRepo}>
+            <GitFork className="h-3 w-3" />
+            Gitee
+          </FooterLink>
+          <span>© 2026 xxxlomg</span>
+        </p>
+      </footer>
+    );
+  }
+
   return (
     <footer className="mt-auto border-t border-border bg-background">
       <div className="mx-auto max-w-6xl px-6 py-4">
@@ -33,11 +69,11 @@ export function Footer() {
             </FooterLink>
           </p>
           <p className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <FooterLink href="https://github.com/xxxlomg">
+            <FooterLink href={LINKS.githubRepo}>
               <GitBranch className="h-3.5 w-3.5" />
               GitHub
             </FooterLink>
-            <FooterLink href="https://gitee.com/xxxlomg">
+            <FooterLink href={LINKS.giteeRepo}>
               <GitFork className="h-3.5 w-3.5" />
               Gitee
             </FooterLink>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   EllipsisVertical,
   Package,
@@ -24,8 +24,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SectionHead } from "@/components/common/SectionHead";
+import { GhostCard } from "@/components/common/GhostCard";
+import { EmptyPanel } from "@/components/common/EmptyPanel";
 import { LayoutToggle } from "./LayoutToggle";
-import { AuthoringWorkbench } from "./AuthoringWorkbench";
 import {
   skillRename,
   openaiYamlGenerate,
@@ -35,22 +36,20 @@ import {
 import type { LayoutMode } from "@/hooks/useSkills";
 
 /**
- * C9 创作页（PLAN-07 W1）：列表态 ↔ 工作台态内部切换。
- * - 卡片点击 / 新建 → 全页 AuthoringWorkbench（退役 CreationEditDialog）；
+ * C9 创作页（PLAN-07 W1）：列表态 ↔ 工作台态。
+ * 工作台状态由 App 层持有并在 App 层整页渲染（侧栏布局壳切换时 CreationView 会
+ * 卸载重挂，若自持工作台状态会丢失）；本组件只负责触发/通知。
+ * - 卡片点击 / 新建 → App 打开全页 AuthoringWorkbench（退役 CreationEditDialog）；
  * - 卡片菜单：改名 / 转 Codex / 转 Claude（保留现状，不进工作台）；
- * - HomeView 新建技能 → App 发 newSignal → 进空工作台。
+ * - HomeView 新建技能 → App 直接打开空工作台。
  */
 interface CreationViewProps {
   skills: Skill[];
   refresh: () => void;
   layout: LayoutMode;
   onLayoutChange: (m: LayoutMode) => void;
-  newSignal: number;
-  onNewSignalConsumed: () => void;
-  /** 工作台态变化 → App 隐藏 StatBar/TabNav（沉浸创作） */
-  onWorkbenchChange: (active: boolean) => void;
-  /** 工作台顶栏设置入口 → App 打开设置页（Topbar 沉浸隐藏后补偿，PLAN-08 §2.1） */
-  onOpenSettings: () => void;
+  /** 打开工作台（skill 为 null 表示新建空工作台） */
+  onOpenWorkbench: (skill: Skill | null) => void;
 }
 
 /** 一键转换派生 short_description（25–64 字符硬约束自动满足）。 */
@@ -67,38 +66,17 @@ export function CreationView({
   refresh,
   layout,
   onLayoutChange,
-  newSignal,
-  onNewSignalConsumed,
-  onWorkbenchChange,
-  onOpenSettings,
+  onOpenWorkbench,
 }: CreationViewProps) {
   const authored = useMemo(
     () => skills.filter((s) => s.tool_id === "authored"),
     [skills]
   );
-  const [wb, setWb] = useState<{ skill: Skill | null } | null>(null);
   const [renaming, setRenaming] = useState<Skill | null>(null);
   const [newName, setNewName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [confirmCodex, setConfirmCodex] = useState<Skill | null>(null);
   const [converting, setConverting] = useState("");
-
-  // HomeView 新建技能信号：消费后归零（防 tab 重挂误弹）
-  useEffect(() => {
-    if (newSignal > 0) {
-      setWb({ skill: null });
-      onWorkbenchChange(true);
-      onNewSignalConsumed();
-    }
-  }, [newSignal, onNewSignalConsumed, onWorkbenchChange]);
-
-  // 视图被外部切走（如 CommandSearch 跳分类）→ 复位工作台态
-  useEffect(() => () => onWorkbenchChange(false), [onWorkbenchChange]);
-
-  const openWb = (s: Skill | null) => {
-    setWb({ skill: s });
-    onWorkbenchChange(true);
-  };
 
   let idx = 0;
 
@@ -174,31 +152,14 @@ export function CreationView({
     }
   };
 
-  // 工作台态：全页渲染
-  if (wb) {
-    return (
-      <AuthoringWorkbench
-        key={wb.skill?.id ?? "new"}
-        skill={wb.skill}
-        skills={skills}
-        refresh={refresh}
-        onOpenSettings={onOpenSettings}
-        onExit={() => {
-          setWb(null);
-          onWorkbenchChange(false);
-          refresh();
-        }}
-      />
-    );
-  }
-
+  // 工作台态由 App 层负责整页渲染（见组件头注释），本组件只渲染列表
   return (
     <div className="relative py-6">
       <SectionHead
         title="创作"
         subtitle={`${authored.length} 个创作技能 · 草稿期建议留在 authored`}
       >
-        <button type="button" className="mbtn primary" onClick={() => openWb(null)}>
+        <button type="button" className="mbtn primary" onClick={() => onOpenWorkbench(null)}>
           <Sparkles className="h-3.5 w-3.5" />
           新建
         </button>
@@ -214,7 +175,7 @@ export function CreationView({
               index={idx++}
               layout="grid"
               busy={converting}
-              onClick={() => openWb(s)}
+              onClick={() => onOpenWorkbench(s)}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
@@ -230,7 +191,7 @@ export function CreationView({
               index={idx++}
               layout="list"
               busy={converting}
-              onClick={() => openWb(s)}
+              onClick={() => onOpenWorkbench(s)}
               onRename={() => openRename(s)}
               onConvertCodex={() => convertCodex(s, false)}
               onConvertClaude={() => convertClaude(s)}
@@ -240,9 +201,21 @@ export function CreationView({
       )}
 
       {authored.length === 0 && (
-        <p className="mt-6 text-center text-xs text-text-tertiary">
-          还没有创作技能——点「新建」进入创作工作台
-        </p>
+        <EmptyPanel
+          icon={<Sparkles className="h-7 w-7" />}
+          title="还没有创作技能"
+          description="点「新建」进入创作工作台，用 AI 辅助编写并沉淀你的自定义技能。"
+          actions={[
+            <GhostCard
+              key="new"
+              icon={<Sparkles className="h-[22px] w-[22px]" />}
+              title="新建技能"
+              subtitle="进入创作工作台"
+              index={0}
+              onClick={() => onOpenWorkbench(null)}
+            />,
+          ]}
+        />
       )}
 
       {/* 重命名小弹窗（菜单项入口） */}

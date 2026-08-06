@@ -54,6 +54,7 @@ pub fn run() {
             commands::pack_import,
             commands::pack_install,
             commands::pack_delete,
+            commands::pack_rename,
             commands::skill_validate,
             commands::skill_new,
             authoring::skill_write_file,

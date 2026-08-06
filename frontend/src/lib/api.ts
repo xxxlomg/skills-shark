@@ -550,6 +550,17 @@ export function packDelete(id: string): Promise<void> {
   return invoke("pack_delete", { id });
 }
 
+/** 重命名 Pack；返回更新后的信息 */
+export function packRename(id: string, name: string): Promise<PackInfo> {
+  if (isMockMode()) {
+    const info = MOCK_PACKS.find((p) => p.id === id);
+    if (!info) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    info.name = name.trim();
+    return Promise.resolve(info);
+  }
+  return invoke<PackInfo>("pack_rename", { id, name });
+}
+
 // ---------------------------------------------------------------------------
 // 模块 A：Git 仓库货架导入（PLAN-06 §1；MEMO-A）
 // ---------------------------------------------------------------------------

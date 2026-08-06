@@ -16,7 +16,7 @@ import {
 import { SkillCard } from "./SkillCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { SectionHead } from "@/components/common/SectionHead";
-import { EmptyState } from "@/components/common/EmptyState";
+import { EmptyPanel } from "@/components/common/EmptyPanel";
 import { useBatchTranslate } from "@/hooks/useBatchTranslate";
 import type { Skill, LayoutMode } from "@/hooks/useSkills";
 import { collectionDisplayName } from "@/hooks/useSkills";
@@ -32,8 +32,6 @@ interface CategoryViewProps {
   onSkillClick: (skill: Skill) => void;
   onSettingsOpen?: () => void;
   onTranslateDone?: () => void;
-  /** 工具 id → 显示名（B4 徽标） */
-  toolNames?: Record<string, string>;
 }
 
 const PREVIEW_MAX = 3;
@@ -48,7 +46,6 @@ export function CategoryView({
   onSkillClick,
   onSettingsOpen,
   onTranslateDone,
-  toolNames,
 }: CategoryViewProps) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -140,7 +137,6 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="grid"
-            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}
@@ -153,7 +149,6 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="list"
-            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}
@@ -206,11 +201,17 @@ export function CategoryView({
 
       {filtered.length === 0 ? (
         query ? (
-          <div className="py-12 text-center text-sm text-text-tertiary">
-            没有匹配「{query}」的技能
-          </div>
+          <EmptyPanel
+            icon={<Search className="h-7 w-7" />}
+            title={`没有匹配「${query}」的技能`}
+            description="换个关键词，或清除搜索条件再试试。"
+          />
         ) : (
-          <EmptyState />
+          <EmptyPanel
+            icon={<FolderOpen className="h-7 w-7" />}
+            title="这个分类还是空的"
+            description="导入技能，或从其他来源把技能放进这个分类。"
+          />
         )
       ) : isScoped ? (
         // PLAN-10 P2：合集过滤视图扁平展示（不再套合集分组）

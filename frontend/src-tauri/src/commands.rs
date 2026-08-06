@@ -494,6 +494,11 @@ pub fn pack_delete(id: String) -> Result<(), String> {
     pack::delete_pack(&config::packs_dir(), &id)
 }
 
+#[tauri::command]
+pub fn pack_rename(id: String, name: String) -> Result<pack::PackInfo, String> {
+    pack::rename_pack(&config::packs_dir(), &id, &name)
+}
+
 // ---------------------------------------------------------------------------
 // 模块 A：Git 仓库货架导入（PLAN-06 §1.8/§1.9/§1.11；MEMO-A）
 // ---------------------------------------------------------------------------

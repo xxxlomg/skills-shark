@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>使用手册 · SkillsShark</title>
+  <meta name="description" content="SkillShark 使用手册：快速上手、功能详解、常见问题与版本更新记录。" />
+  <link rel="icon" type="image/png" href="assets/shark-tile.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="index.html" aria-label="SkillsShark 首页">
+        <img src="assets/shark-tile.png" alt="" width="26" height="26" />
+        <span>SkillsShark</span>
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a href="index.html">首页</a>
+        <a href="manual.html" class="on">使用手册</a>
+        <a href="https://gitee.com/xxxlomg/skills-shark" target="_blank" rel="noopener">Gitee</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="btn btn-primary btn-sm" href="https://gitee.com/xxxlomg/skills-shark/releases" target="_blank" rel="noopener">下载</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="docs">
+    <!-- 目录 -->
+    <nav class="docs-toc" id="toc" aria-label="目录"></nav>
+
+    <!-- 正文 -->
+    <div class="docs-body" id="docs">
+
+      <section id="quickstart" class="reveal">
+        <h1>快速上手</h1>
+        <p>SkillShark（技能鲨）是一款本地优先的 AI 技能管理桌面应用。它把散落在各个 AI 工具里的技能扫描出来、翻译成中文、统一管理、跨工具引用，还支持创作自己的技能并打包分享。</p>
+        <p>本章用三步带你走通「扫描，读懂」的最短路径。</p>
+
+        <h2 id="quickstart-0">第一步：配置模型 Key</h2>
+        <p>翻译与 AI 创作需要一个模型 Key。打开右上角「设置」，进入「LLM 配置」：</p>
+        <ol>
+          <li>填入模型服务的 Base URL、API Key 与模型名；</li>
+          <li>点击「测试连通性」，等待真实连通结果；</li>
+          <li>保存。Key 只写入本机数据目录（Windows 为 <code>%APPDATA%\Skills Shark</code>），绝不进入任何业务数据流。</li>
+        </ol>
+        <blockquote><p>Key 由你自备，应用本身不提供模型额度。你可以随时在设置中切换服务商或关闭配置。</p></blockquote>
+
+        <h2 id="quickstart-1">第二步：同步扫描技能</h2>
+        <p>点击右上角「同步」。SkillShark 会按设置中的扫描路径遍历各工具的 skills 目录，读取每个 SKILL.md 的元数据，按工具分组展示为卡片。</p>
+        <p>两点说明：</p>
+        <ul>
+          <li>在「设置 → 工具」中停用的工具不会参与扫描；</li>
+          <li>多个工具共用同一源目录时，首页只保留一张代表卡，全部安装位置记录在详情抽屉的「安装位置」区。</li>
+        </ul>
+
+        <h2 id="quickstart-2">第三步：翻译第一个技能</h2>
+        <p>点击任意技能卡片打开详情抽屉，点「AI 翻译」按钮：</p>
+        <ul>
+          <li>翻译过程流式输出，中英对照实时呈现，可随时停止；</li>
+          <li>译文包含中文标题、中文描述与全文翻译，保存后卡片直接显示中文标题；</li>
+          <li>原文更新导致译文过期时，详情页会提示，可一键重翻；</li>
+          <li>不再需要时，可在详情页删除译文回到原文。</li>
+        </ul>
+        <p>完成这三步后，建议继续阅读「功能详解」中的 Hub、Skill Packs 与创作章节，把技能真正用起来。</p>
+      </section>
+
+      <section id="features" class="reveal">
+        <h1>功能详解</h1>
+
+        <h2 id="features-0">技能库</h2>
+        <p>技能库是首页，展示所有被扫描到的技能，按来源工具分组为合集卡片。</p>
+        <ul>
+          <li>卡片上的徽标表示该技能被哪些工具引用（来自 Hub 台账）；</li>
+          <li>顶部统计栏显示技能总数、已翻译数、译文丢失数与 Pack 数量；</li>
+          <li>右上角可切换网格 / 列表布局，偏好会记住；</li>
+          <li><code>Ctrl/Cmd + K</code> 打开命令搜索，可直达任意技能、合集、工具，或快速发起导入、建链、打包等操作。</li>
+        </ul>
+        <p>进入某个合集后，可对单个技能发起翻译、查看详情、建立 Hub 引用。</p>
+
+        <h2 id="features-1">AI 翻译</h2>
+        <p>翻译是本产品的核心能力，解决「技能是英文的，读不懂、不知道怎么用」的问题。</p>
+        <ul>
+          <li><b>流式输出：</b>译文逐段出现，不必等全文完成；翻译中可随时停止；</li>
+          <li><b>中英对照：</b>译文与原文分栏呈现，方便核对；</li>
+          <li><b>增量机制：</b>以原文内容哈希判断是否需要重翻，原文没变则跳过，不浪费 token；</li>
+          <li><b>批量翻译：</b>合集页可一键批量翻译该合集下所有技能；</li>
+          <li><b>元数据同译：</b>frontmatter 中的标题与描述也会翻译，卡片与搜索结果直接显示中文；</li>
+          <li><b>过期提醒：</b>原文更新后译文标记为过期，可一键重翻；</li>
+          <li><b>存储位置：</b>所有译文统一存放在数据目录的 <code>translations/</code> 下（Windows 为 <code>%APPDATA%\Skills Shark\translations\</code>），文件名为技能 ID 的 percent-encode，元数据索引记在 <code>translations.json</code>，不侵入任何工具目录；</li>
+          <li><b>删除译文：</b>详情页提供删除入口，删除后卡片回到原文显示。</li>
+        </ul>
+
+        <h2 id="features-2">Hub：跨工具引用</h2>
+        <p>很多技能只存在于某一个工具的目录里，其他工具用不到。Hub 通过引用把技能「跨」过去：</p>
+        <ul>
+          <li><b>新建引用：</b>选择技能、目标工具、方式（Windows 上三种都可用，其他平台用复制或移动）：
+            <ul>
+              <li>链接（junction）：不占额外空间，源目录更新自动同步，推荐；</li>
+              <li>复制：独立副本，互不影响；</li>
+              <li>移动：源目录的技能会移到目标工具（谨慎使用）。</li>
+            </ul>
+          </li>
+          <li><b>台账管理：</b>所有引用登记在案，可查看来源、目标、方式与时间；</li>
+          <li><b>断链检测：</b>源被删或 junction 失效时自动标记为断链，并提供修复（重建）入口；</li>
+          <li><b>反向引用：</b>在技能详情页可以看到「这个技能被引用到了哪些工具」，也可以从这里直接发起新引用；</li>
+          <li><b>引用分组：</b>台账按源目录分组展示，一眼看清每个来源的分发情况。</li>
+        </ul>
+
+        <h2 id="features-3">创作工作台</h2>
+        <p>不会写技能？工作台把创作过程拆成了可视化的步骤：</p>
+        <ul>
+          <li><b>草稿目录：</b>创作中的技能保存在独立草稿目录，与已扫描的技能隔离；</li>
+          <li><b>文件树：</b>技能的每个文件都可新建、编辑、删除；</li>
+          <li><b>双栏编辑：</b>左侧 SKILL.md 编辑器（<code>Ctrl/Cmd + S</code> 保存），右侧实时校验面板；</li>
+          <li><b>改名同步：</b>重命名目录时，frontmatter 中的 name 字段自动同步修改；</li>
+          <li><b>生成 SKILL.md：</b>已有 openai.yaml 的技能可一键生成规范的 SKILL.md；</li>
+          <li><b>AI 创作：</b>配置 Key 后，描述你的想法，AI 流式直出 SKILL.md，可随时停止；</li>
+          <li><b>校验器：</b>按 Claude / Codex 两套官方规则做结构校验，给出具体修改提示（命名须 hyphen-case、描述须「做什么。当何时用时。」等）。</li>
+        </ul>
+
+        <h2 id="features-4">Skill Packs</h2>
+        <p>Pack 是技能的打包分发单元：</p>
+        <ul>
+          <li><b>创建：</b>勾选若干技能（可只选未翻译版本或带译文版本），填名称与描述即可打包；带译文打包时，译文一并进入包内，导入方无需重新翻译；</li>
+          <li><b>导入：</b>支持拖拽 <code>.skillpack</code> / <code>.zip</code> 到窗口任意位置，或从 Packs 页选择文件；</li>
+          <li><b>安装：</b>把 Pack 内的技能安装到「导入」库，随即可翻译、引用；</li>
+          <li><b>导出：</b>把已创建的 Pack 导出为 <code>.skillpack</code> 文件，发给任何人；</li>
+          <li><b>发布：</b>配置「技能仓库」后，可一键把 Pack 推送到你自己的 git 仓库货架（见下文）。</li>
+        </ul>
+        <p>所有 Pack 文件统一存放在数据目录的 <code>packs/</code> 下，安装校验采用三道闸：<code>pack.json</code> 白名单、全文件 sha256 校验、SKILL.md 解析，任何一闸失败即整体拒绝。</p>
+
+        <h2 id="features-5">导入</h2>
+        <p>除 Pack 外还支持三种导入方式：</p>
+        <ul>
+          <li><b>本地 zip：</b>拖拽或选择 zip 文件，后端自动识别是普通 zip 还是 Skill Pack；</li>
+          <li><b>URL 直导：</b>粘贴技能 zip 的下载链接；</li>
+          <li><b>Git 货架：</b>输入 git 仓库地址，浏览其中的 Pack 并按提交选择性导入。</li>
+        </ul>
+        <p>下载文件统一放在设置的「下载路径」（默认为数据目录的 <code>imported/</code>）。</p>
+
+        <h2 id="features-6">Git 货架与发布</h2>
+        <p>SkillShark 把 git 仓库当作技能货架：</p>
+        <ul>
+          <li><b>发布侧：</b>在「设置 → 技能仓库」配置本地仓库路径与远端 URL 后，Pack 卡片上出现「发布」按钮。发布会把 Pack 文件与 <code>index.json</code> 索引一起提交并推送；远端有新提交时自动 rebase 重试。发布前会检查：系统 git 可用、仓库已配置、工作区干净；</li>
+          <li><b>导入侧：</b>Packs 页「从 Git 导入」可浏览任意符合结构的货架仓库，选择 Pack 与提交导入。</li>
+        </ul>
+        <p>凭据走你本机自己的 git 配置，SkillShark 不接触你的账号密码。</p>
+
+        <h2 id="features-7">设置说明</h2>
+        <p>设置页分四个区：</p>
+        <ul>
+          <li><b>LLM 配置：</b>Base URL、API Key、模型名与连通性测试。保存前可先测试，连通失败会给出具体网络错误提示；</li>
+          <li><b>工具：</b>管理被扫描的工具（启用 / 停用 / 新增自定义工具）、下载路径。删除仍有引用的工具会先拦截并提示；</li>
+          <li><b>技能仓库：</b>发布用的本地仓库路径与远端 URL；</li>
+          <li><b>外观：</b>浅色 / 深色主题，四种强调色可选。</li>
+        </ul>
+      </section>
+
+      <section id="faq" class="reveal">
+        <h1>常见问题</h1>
+
+        <h2 id="faq-0">译文状态显示「丢失」是什么意思？</h2>
+        <p>原文被移动或删除后，译文找不到对应源文件，就会标记为「丢失」。丢失的译文不会被删除，源文件恢复或重新扫描到之后，对应译文会自动找回。</p>
+
+        <h2 id="faq-1">为什么翻译 / AI 创作按钮点不了？</h2>
+        <p>通常是 Key 未配置或配置无效。打开「设置 → LLM 配置」完成配置并测试连通性。如果连通性测试失败，留意提示中的具体网络错误（代理、证书、域名解析等）。</p>
+
+        <h2 id="faq-2">Mock 模式是什么？怎么开？</h2>
+        <p>Mock 模式用模拟数据运行整个界面，用于无后端环境的预览与开发。在地址栏加 <code>?mock=1</code> 参数即可启用（如 <code>http://localhost:5173/?mock=1</code>）。打包后的桌面应用内置真实后端，无需关心。</p>
+
+        <h2 id="faq-3">Pack 卡片的「发布」按钮为什么是灰的？</h2>
+        <p>按顺序检查：</p>
+        <ol>
+          <li>系统是否安装了 git（设置保存或重启应用后会重新检测）；</li>
+          <li>「设置 → 技能仓库」是否配置了本地仓库路径与远端 URL；</li>
+          <li>配置的仓库路径是否真实存在且已完成初始化；</li>
+          <li>仓库工作区是否干净（有未提交改动时不允许发布）。</li>
+        </ol>
+        <p>按钮悬停时会直接显示具体原因。</p>
+
+        <h2 id="faq-4">junction 链接是什么？其他平台能用吗？</h2>
+        <p>junction 是 Windows 的目录连接机制，目标目录直接指向源目录：不占额外空间，源更新后目标自动同步。其他平台请改用「复制」或「移动」方式建链。</p>
+
+        <h2 id="faq-5">删除 Pack 会影响已安装的技能吗？</h2>
+        <p>不会。删除 Pack 只移除 Packs 库中的打包记录，已经安装到「导入」库的技能、已导出的 <code>.skillpack</code> 文件都不受影响。</p>
+
+        <h2 id="faq-6">我的数据安全吗？</h2>
+        <p>SkillShark 是本地优先设计：</p>
+        <ul>
+          <li>配置与 Key 只存放在本机数据目录（Windows 为 <code>%APPDATA%\Skills Shark</code>）；</li>
+          <li>除你主动配置的模型服务与 git 远端外，不产生任何网络请求；</li>
+          <li>翻译、打包、引用等操作全部在本机完成。</li>
+        </ul>
+
+        <h2 id="faq-7">应用的数据都存放在哪里？</h2>
+        <p>统一在数据目录下（Windows 为 <code>%APPDATA%\Skills Shark</code>，即 <code>C:\Users\你的用户名\AppData\Roaming\Skills Shark</code>；也可用环境变量 <code>SKILLS_SHARK_DATA</code> 整体改址）：</p>
+        <ul>
+          <li><code>config.json</code>：应用配置（含 Key）；</li>
+          <li><code>translations/</code> 与 <code>translations.json</code>：全部译文；</li>
+          <li><code>packs/</code>：Pack 文件；</li>
+          <li><code>imported/</code>：Pack 安装出的技能，也是下载导入的默认位置（可在设置改路径）；</li>
+          <li><code>authored/</code>：创作工作台的草稿；</li>
+          <li><code>links.json</code>：Hub 引用台账；</li>
+          <li><code>tmp/</code>：git 货架克隆临时区，启动自动清理；</li>
+          <li><code>debug.log</code>：调试日志。</li>
+        </ul>
+        <p>备份该目录即可完整迁移你的所有数据。</p>
+      </section>
+
+      <section id="changelog" class="reveal">
+        <h1>版本更新记录</h1>
+        <div class="changelog">
+          <div class="ver badge">
+            <h3>v0.2.1<span class="vtag">当前版本</span></h3>
+            <ul>
+              <li>使用手册升级为白皮书形态：左侧目录 + 正文分章，新增版本更新记录；</li>
+              <li>新增产品官网。</li>
+            </ul>
+          </div>
+          <div class="ver">
+            <h3>v0.2.0</h3>
+            <p>枢纽化与创作套件，让 SkillShark 不止于「看」：</p>
+            <ul>
+              <li>Hub：跨工具引用层，junction / 复制 / 移动三种方式，台账登记、断链检测与修复、反向引用、按源分组；</li>
+              <li>创作工作台：草稿、文件树、双栏编辑、改名同步、SKILL.md 生成、AI 流式创作；</li>
+              <li>校验器：Claude / Codex 双生态规则校验，结构化问题与修改提示；</li>
+              <li>Git 货架：从 git 仓库浏览导入 Pack，也可把本地 Pack 一键发布到你的 git 仓库；</li>
+              <li>工具注册表：多工具扫描来源统一管理，支持自定义工具；</li>
+              <li>Pack 带译文闭环：打包可携带译文，导入即还原；</li>
+              <li>命令搜索（<code>Ctrl/Cmd + K</code>）、手册页、外观四色、AI 翻译可终止等体验改进。</li>
+            </ul>
+          </div>
+          <div class="ver">
+            <h3>v0.1.0</h3>
+            <p>首发版本，核心能力：</p>
+            <ul>
+              <li>多工具 skills 目录扫描与分组展示；</li>
+              <li>AI 流式翻译，中英对照，元数据同译，增量重翻；</li>
+              <li>Skill Pack 创建 / 导入 / 导出 / 安装；</li>
+              <li>zip 与 URL 两种导入方式；</li>
+              <li>深色 / 浅色双主题，玻璃拟态界面。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span class="footer-brand">
+        <img src="assets/shark-tile.png" alt="" width="18" height="18" />
+        SkillsShark
+      </span>
+      <nav class="footer-links" aria-label="页脚导航">
+        <a href="index.html">首页</a>
+        <a href="https://gitee.com/xxxlomg/skills-shark" target="_blank" rel="noopener">Gitee</a>
+      </nav>
+      <span class="footer-copy">© 2026 xxxlomg · 本地优先，技能由你掌控</span>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>

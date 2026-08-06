@@ -1,5 +1,5 @@
-import { useMemo, useState, useCallback } from "react";
-import { ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { useMemo, useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import type { Skill, SkillGroup } from "@/hooks/useSkills";
 import { collectionDisplayName } from "@/hooks/useSkills";
 
@@ -109,15 +109,32 @@ export function SkillTree({
     [groups]
   );
 
-  // 当前所在分支强制展开（可读性优先；手动折叠其它分支仍持久化）
+  // 当前所在分支：导航到时自动展开一次（可读性优先），
+  // 之后允许用户手动折叠——不再每次渲染强制展开，
+  // 修复「展开A→展开B→收起A失效」（active 分支被 isOpen 强制撑开）。
   const activeToolKey = currentLabel ? `tool:${currentLabel}` : null;
   const activeCollKey =
     currentLabel && currentCollection
       ? `coll:${currentLabel}\u241f${currentCollection}`
       : null;
 
-  const isOpen = (key: string) =>
-    open.has(key) || key === activeToolKey || key === activeCollKey;
+  // 导航到某分支时把它加进 open 集（仅在被导航的那次生效，不覆盖后续手动折叠）
+  useEffect(() => {
+    if (!activeToolKey && !activeCollKey) return;
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (activeToolKey) next.add(activeToolKey);
+      if (activeCollKey) next.add(activeCollKey);
+      try {
+        localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [activeToolKey, activeCollKey]);
+
+  const isOpen = (key: string) => open.has(key);
 
   const skillActive = (id: string) => id === selectedSkillId;
 
@@ -128,7 +145,7 @@ export function SkillTree({
         key={`s:${skill.id}`}
         type="button"
         onClick={() => onOpenSkill(skill)}
-        className={`flex w-full min-w-0 items-center gap-1.5 rounded-md py-[3px] pr-1.5 pl-2 text-left transition-colors ${
+        className={`flex w-full min-w-0 items-center gap-1.5 rounded-md py-[3px] pr-1.5 pl-2 text-left text-[14px] transition-colors ${
           active
             ? "bg-brand/10 font-medium text-brand"
             : "text-text-secondary hover:bg-glass-2 hover:text-text-primary"
@@ -162,12 +179,13 @@ export function SkillTree({
                 type="button"
                 aria-label={openTool ? "收起" : "展开"}
                 onClick={() => toggle(toolKey)}
-                className={`grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-transform hover:text-text-primary ${
-                  openTool ? "rotate-90" : ""
-                }`}
-                style={{ transform: openTool ? "rotate(90deg)" : undefined }}
+                className="grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-colors hover:text-text-primary"
               >
-                <ChevronRight className="h-3.5 w-3.5" />
+                {openTool ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
               </button>
               <button
                 type="button"
@@ -180,7 +198,7 @@ export function SkillTree({
                   }`}
                 />
                 <span
-                  className={`truncate text-[12.5px] ${
+                  className={`truncate text-[14px] ${
                     toolActive
                       ? "font-semibold text-text-primary"
                       : "font-medium text-text-secondary"
@@ -214,14 +232,13 @@ export function SkillTree({
                           type="button"
                           aria-label={openColl ? "收起" : "展开"}
                           onClick={() => toggle(coll.key)}
-                          className="grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-transform hover:text-text-primary"
-                          style={{
-                            transform: openColl
-                              ? "rotate(90deg)"
-                              : undefined,
-                          }}
+                          className="grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-colors hover:text-text-primary"
                         >
-                          <ChevronRight className="h-3 w-3" />
+                          {openColl ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
                         </button>
                         <button
                           type="button"
@@ -236,7 +253,7 @@ export function SkillTree({
                             }`}
                           />
                           <span
-                            className={`truncate text-[12px] ${
+                            className={`truncate text-[13px] ${
                               collActive
                                 ? "font-semibold text-text-primary"
                                 : "text-text-secondary"

@@ -1,9 +1,16 @@
 import type { CSSProperties } from "react";
-import { Box, Download, Package, Trash2, UploadCloud } from "lucide-react";
+import { Box, Download, MoreVertical, Package, Pencil, Trash2, UploadCloud } from "lucide-react";
 import type { PackInfo } from "@/lib/api";
 import { Tip } from "@/components/common/Tip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-export type PackAction = "install" | "export" | "publish" | "delete";
+export type PackAction = "install" | "export" | "publish" | "rename" | "delete";
 
 interface PackCardProps {
   pack: PackInfo;
@@ -24,9 +31,6 @@ const ghostBtn =
 const primaryBtn =
   "inline-flex items-center gap-[6px] rounded-full border border-transparent bg-gradient-to-br from-brand-2 to-brand px-[13px] py-[7px] text-[12.5px] font-medium text-white shadow-[0_6px_18px_-8px_var(--glow)] hover:brightness-[1.12] hover:shadow-[0_10px_26px_-8px_var(--glow)] active:brightness-[0.97] active:shadow-[0_3px_10px_-6px_var(--glow)] " +
   pressable;
-const dangerBtn =
-  "inline-flex items-center gap-[6px] rounded-full border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary hover:border-red-400/50 hover:bg-red-400/10 hover:text-red-400 hover:shadow-[0_8px_20px_-10px_var(--shadow)] " +
-  pressable;
 
 /** 技能名 tag 上限：超出折叠为 +N */
 const MAX_TAGS = 3;
@@ -43,9 +47,34 @@ export function PackCard({ pack, index, onAction, publishDisabledReason, publish
           <span className="grid h-[46px] w-[46px] place-items-center rounded-[13px] border border-stroke bg-glass-2 text-amber">
             <Package className="h-[22px] w-[22px]" />
           </span>
-          <span className="rounded-full border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-brand">
-            v{pack.ver}
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="rounded-full border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-brand">
+              v{pack.ver}
+            </span>
+            {/* 右上角操作菜单：修改名称 / 删除（网格布局） */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Pack 操作"
+                  className="iconbtn h-7 w-7 rounded-full"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[132px]">
+                <DropdownMenuItem onSelect={() => onAction("rename", pack)}>
+                  <Pencil />
+                  修改名称
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onAction("delete", pack)}>
+                  <Trash2 />
+                  删除
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <h3 className="relative z-[1] mt-4 truncate font-display text-[19px] font-semibold text-text-primary">
@@ -101,15 +130,6 @@ export function PackCard({ pack, index, onAction, publishDisabledReason, publish
             >
               <UploadCloud className="h-3.5 w-3.5" />
               {publishing ? "发布中…" : "发布"}
-            </button>
-          </Tip>
-          <Tip label="删除 Pack">
-            <button
-              type="button"
-              className={dangerBtn}
-              onClick={() => onAction("delete", pack)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </Tip>
         </div>

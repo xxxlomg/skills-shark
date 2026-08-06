@@ -376,6 +376,14 @@
   border-bottom: 1px solid var(--stroke);
 }
 
+/* 侧栏玻璃（PLAN-10 侧栏重构）：全高侧边栏材质，右边框分隔主内容区 */
+.glass-sidebar {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+  border-right: 1px solid var(--stroke);
+}
+
 /* 侧滑面板玻璃 */
 .glass-sheet {
   background: var(--glass-2);

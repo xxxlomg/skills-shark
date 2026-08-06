@@ -2,8 +2,8 @@ import { Archive, GitBranch, PenLine } from "lucide-react";
 import { FolderCard } from "./FolderCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { GhostCard } from "@/components/common/GhostCard";
+import { EmptyPanel } from "@/components/common/EmptyPanel";
 import { SectionHead } from "@/components/common/SectionHead";
-import { EmptyState } from "@/components/common/EmptyState";
 import type { Skill, SkillGroup, LayoutMode } from "@/hooks/useSkills";
 
 interface HomeViewProps {
@@ -48,7 +48,29 @@ export function HomeView({
       </SectionHead>
 
       {groups.length === 0 ? (
-        <EmptyState />
+        <EmptyPanel
+          icon={<Archive className="h-7 w-7" />}
+          title="技能库还是空的"
+          description="导入本地 zip、从 Git 仓库拉取，或点「新建技能」，开始构建你的技能库。"
+          actions={[
+            <GhostCard
+              key="zip"
+              icon={<Archive className="h-[22px] w-[22px]" />}
+              title="导入本地 Zip"
+              subtitle="选择或拖拽 zip 到窗口"
+              index={0}
+              onClick={onZipImport}
+            />,
+            <GhostCard
+              key="git"
+              icon={<GitBranch className="h-[22px] w-[22px]" />}
+              title="从 Git 仓库导入"
+              subtitle="GitHub / Gitee 地址"
+              index={1}
+              onClick={onGitImport}
+            />,
+          ]}
+        />
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {/* 导入入口独占一行（grid）：与数据卡片分行，消除割裂感 */}
