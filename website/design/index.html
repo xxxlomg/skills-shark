@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SkillsShark · 瑞士国际主义设计规范 v0.2.2</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<!-- ============ 封面 ============ -->
+<header class="cover">
+  <div class="container">
+    <p class="eyebrow">Design System · v0.2.2</p>
+    <h1 class="display">瑞士国际主义<br/><span class="hl">Swiss International Style</span></h1>
+    <p class="lead">SkillsShark 视觉语言规范 · 简约 · 线条 · 强网格 · 克制动效</p>
+    <div class="cover-meta mono">
+      <span>GRID 8pt</span><span>·</span><span>ACCENT #FF6A45</span><span>·</span><span>PAPER #FAF8F4</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ 01 设计原则 ============ -->
+<section class="section" id="principles">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">01</span>
+      <div class="title"><h2>设计原则</h2><p>什么是「瑞士国际主义」——不是风格，是纪律。</p></div>
+    </div>
+    <div class="cap-grid">
+      <div class="cap"><span class="c-num mono">A</span><h3>网格统治一切</h3><p>所有对齐基于 8pt 网格，视觉层级由网格密度而非装饰决定。</p></div>
+      <div class="cap"><span class="c-num mono">B</span><h3>发丝线代替阴影</h3><p>用 hairline 描边定义边界，不用投影制造「悬浮感」。深度来自叠放与留白。</p></div>
+      <div class="cap"><span class="c-num mono">C</span><h3>单一强调色</h3><p>全界面只保留一个强调色（珊瑚橙），其余均为中性灰阶。克制即力量。</p></div>
+      <div class="cap"><span class="c-num mono">D</span><h3>左对齐 + 大留白</h3><p>文本左对齐，区块间留足呼吸空间。信息密度由留白控制。</p></div>
+      <div class="cap"><span class="c-num mono">E</span><h3>克制动效</h3><p>动效只用于反馈状态（hover/过渡），时长 ≤200ms，无漂浮、无光晕。</p></div>
+      <div class="cap"><span class="c-num mono">F</span><h3>无衬线 + 数字系统</h3><p>全无衬线字体，编号/数据用等宽字，营造工具感与秩序感。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 配色卡 ============ -->
+<section class="section" id="color">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">02</span>
+      <div class="title"><h2>配色卡</h2><p>暖中性色为主，珊瑚橙为唯一强调。适配深/浅双主题。</p></div>
+    </div>
+
+    <div class="block-label mono">基础色 · 浅色主题</div>
+    <div class="swatches">
+      <div class="swatch" style="--sw:#FAF8F4"><span class="sw-name">Paper</span><span class="sw-val mono">#FAF8F4</span><span class="sw-role">页面暖白纸底</span></div>
+      <div class="swatch" style="--sw:#FFFFFF"><span class="sw-name">Surface</span><span class="sw-val mono">#FFFFFF</span><span class="sw-role">卡片 / 面板</span></div>
+      <div class="swatch" style="--sw:#1A1714"><span class="sw-name">Ink</span><span class="sw-val mono">#1A1714</span><span class="sw-role">主文字 · 暖近黑</span></div>
+      <div class="swatch" style="--sw:#5E5850"><span class="sw-name">Ink-2</span><span class="sw-val mono">#5E5850</span><span class="sw-role">次级文字</span></div>
+      <div class="swatch" style="--sw:#998F83"><span class="sw-name">Ink-3</span><span class="sw-val mono">#998F83</span><span class="sw-role">弱化 / 注释</span></div>
+      <div class="swatch" style="--sw:#E7E1D8"><span class="sw-name">Line</span><span class="sw-val mono">#E7E1D8</span><span class="sw-role">发丝线</span></div>
+      <div class="swatch" style="--sw:#D6CFC3"><span class="sw-name">Line-hi</span><span class="sw-val mono">#D6CFC3</span><span class="sw-role">hover 描边</span></div>
+    </div>
+
+    <div class="block-label mono">强调色 · 唯一</div>
+    <div class="swatches">
+      <div class="swatch accent" style="--sw:#FF6A45"><span class="sw-name">Accent</span><span class="sw-val mono">#FF6A45</span><span class="sw-role">暖珊瑚橙 · 唯一强调</span></div>
+      <div class="swatch" style="--sw:#E84E26"><span class="sw-name">Accent-strong</span><span class="sw-val mono">#E84E26</span><span class="sw-role">按下 / hover</span></div>
+      <div class="swatch soft" style="--sw:#FF6A45"><span class="sw-name">Accent-soft</span><span class="sw-val mono">rgba(255,106,69,.10)</span><span class="sw-role">浅强调底</span></div>
+    </div>
+
+    <div class="block-label mono">语义色</div>
+    <div class="swatches">
+      <div class="swatch" style="--sw:#2F9E6E"><span class="sw-name">Success</span><span class="sw-val mono">#2F9E6E</span><span class="sw-role">成功 / 就绪</span></div>
+      <div class="swatch" style="--sw:#D97706"><span class="sw-name">Warn</span><span class="sw-val mono">#D97706</span><span class="sw-role">警告 / 过期</span></div>
+      <div class="swatch" style="--sw:#DC2626"><span class="sw-name">Danger</span><span class="sw-val mono">#DC2626</span><span class="sw-role">错误 / 删除</span></div>
+    </div>
+
+    <div class="block-label mono">深色主题（v0.2.2 UI 扩展基准）</div>
+    <div class="swatches">
+      <div class="swatch" style="--sw:#0E0D0B"><span class="sw-name">Paper-dark</span><span class="sw-val mono">#0E0D0B</span><span class="sw-role">暖近黑纸底</span></div>
+      <div class="swatch" style="--sw:#161412"><span class="sw-name">Surface-dark</span><span class="sw-val mono">#161412</span><span class="sw-role">面板</span></div>
+      <div class="swatch" style="--sw:#EDE8E0"><span class="sw-name">Ink-dark</span><span class="sw-val mono">#EDE8E0</span><span class="sw-role">主文字</span></div>
+      <div class="swatch" style="--sw:#B5ACA0"><span class="sw-name">Ink-2-dark</span><span class="sw-val mono">#B5ACA0</span><span class="sw-role">次级文字</span></div>
+      <div class="swatch" style="--sw:#6E665C"><span class="sw-name">Ink-3-dark</span><span class="sw-val mono">#6E665C</span><span class="sw-role">弱化</span></div>
+      <div class="swatch" style="--sw:#2A2723"><span class="sw-name">Line-dark</span><span class="sw-val mono">#2A2723</span><span class="sw-role">发丝线</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 线条系统 ============ -->
+<section class="section" id="line">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">03</span>
+      <div class="title"><h2>线条系统</h2><p>发丝线是瑞士风的骨骼——1px 横线定义层级，网格定义节奏。</p></div>
+    </div>
+    <div class="line-demo">
+      <div class="line-row"><span class="mono">hairline 1px</span><div class="ln ln-1"></div></div>
+      <div class="line-row"><span class="mono">divider 1px</span><div class="ln ln-2"></div></div>
+      <div class="line-row"><span class="mono">accent 3px</span><div class="ln ln-3"></div></div>
+      <div class="grid-demo">
+        <span class="mono block-label">8pt 网格基准</span>
+        <div class="grid-cells"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 排版阶梯 ============ -->
+<section class="section" id="type">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">04</span>
+      <div class="title"><h2>排版阶梯</h2><p>无衬线 + 等宽数字系统。层级由字号与字重，而非颜色。</p></div>
+    </div>
+    <div class="type-spec">
+      <div class="t-row"><span class="t-tag mono">Display / 44</span><span class="t-sample display">技能的鲨</span></div>
+      <div class="t-row"><span class="t-tag mono">H2 / 32</span><span class="t-sample h2">管理你的技能树</span></div>
+      <div class="t-row"><span class="t-tag mono">H3 / 20</span><span class="t-sample h3">Pack 能力包</span></div>
+      <div class="t-row"><span class="t-tag mono">Body / 17</span><span class="t-sample body">把零散技能打包成可复用的能力模块。</span></div>
+      <div class="t-row"><span class="t-tag mono">Muted / 14</span><span class="t-sample muted mono">--accent: #FF6A45</span></div>
+      <div class="t-row"><span class="t-tag mono">Mono / 12</span><span class="t-sample mono small">FS 01 · 02 · 03 · GRID 8pt</span></div>
+    </div>
+
+    <div class="block-label mono">字体栈</div>
+    <div class="font-stack">
+      <div class="fs"><span class="fs-name">Sans</span><code class="mono">Inter · Helvetica Neue · PingFang SC · Microsoft YaHei · Noto Sans SC</code></div>
+      <div class="fs"><span class="fs-name">Mono</span><code class="mono">SF Mono · JetBrains Mono · Consolas · ui-monospace</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 组件样式 ============ -->
+<section class="section" id="components">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">05</span>
+      <div class="title"><h2>组件样式</h2><p>按钮、卡片、输入、标签 —— 直角微圆角 + 发丝线 + 单强调色。</p></div>
+    </div>
+
+    <div class="block-label mono">按钮</div>
+    <div class="comp-row">
+      <button class="btn btn--primary">主要操作 <span class="arrow">→</span></button>
+      <button class="btn btn--ghost">次要操作</button>
+      <button class="btn btn--invert">反色</button>
+      <button class="btn btn--primary" disabled>禁用</button>
+    </div>
+
+    <div class="block-label mono">卡片 · 发丝线框</div>
+    <div class="comp-row">
+      <div class="demo-card">
+        <span class="demo-tag mono">TAG</span>
+        <h3>技能包名称</h3>
+        <p>功能描述用来填充卡片主体，展示信息密度与留白控制。</p>
+      </div>
+      <div class="demo-card hover">
+        <span class="demo-tag mono">HOVER</span>
+        <h3>悬浮态</h3>
+        <p>hover 仅描边加深，无上浮、无投影、无光晕。</p>
+      </div>
+    </div>
+
+    <div class="block-label mono">输入框 / 标签</div>
+    <div class="comp-row stack">
+      <div class="field"><label class="mono">SKILL NAME</label><input type="text" placeholder="输入技能名称" /></div>
+      <div class="chips">
+        <span class="chip">Rust</span>
+        <span class="chip on">Tauri <b>×</b></span>
+        <span class="chip">Web</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 应用到 v0.2.2 ============ -->
+<section class="section" id="apply">
+  <div class="container">
+    <div class="sec-head">
+      <span class="idx mono">06</span>
+      <div class="title"><h2>应用到 v0.2.2 UI 重写</h2><p>从毛玻璃到瑞士风 —— 迁移映射表。</p></div>
+    </div>
+    <div class="migrate">
+      <div class="mig-col">
+        <h3 class="mig-title">移除 <span class="mono">→</span> 替换</h3>
+        <ul class="mig-list">
+          <li><span class="mono">glass / backdrop-blur</span> → 纯色 surface + hairline 边框</li>
+          <li><span class="mono">drift 光晕 / blob</span> → 纯色背景 + 极淡网格线</li>
+          <li><span class="mono">card-glow / 辉光阴影</span> → 无阴影，hover 描边加深</li>
+          <li><span class="mono">bg-gradient 渐变按钮</span> → 纯强调色填充</li>
+          <li><span class="mono">rounded-[18px] / 药丸</span> → 6–8px 微圆角</li>
+          <li><span class="mono">4× accent 预设</span> → 收敛为单一珊瑚橙</li>
+          <li><span class="mono">hover 上浮 translateY</span> → 仅 border-color 变化</li>
+        </ul>
+      </div>
+      <div class="mig-col keep">
+        <h3 class="mig-title">保留</h3>
+        <ul class="mig-list">
+          <li>系统字体栈（零加载，保留）</li>
+          <li>深/浅双主题切换（next-themes）</li>
+          <li>8pt 对齐节奏</li>
+          <li>等宽字体用于编号/数据</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 页脚 ============ -->
+<footer class="footer">
+  <div class="container">
+    <p class="mono">SkillsShark Design Spec · v0.2.2 · Swiss International Style · 2026</p>
+  </div>
+</footer>
+
+</body>
+</html>
