@@ -287,7 +287,7 @@ export function PackCreateDialog({ skills, onClose, onCreated }: PackCreateDialo
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[min(760px,90vh)] flex-col overflow-hidden border-border/60 bg-card/95 backdrop-blur-xl sm:max-w-4xl">
+      <DialogContent className="flex h-[min(760px,90vh)] flex-col overflow-hidden border-border/60 bg-card sm:max-w-4xl">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <PackagePlus className="h-4 w-4 text-primary" />

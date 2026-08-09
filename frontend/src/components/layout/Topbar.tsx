@@ -75,7 +75,7 @@ export function Topbar({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") onSearchClick();
         }}
-        className="mx-auto flex max-w-[440px] flex-1 cursor-text items-center gap-[9px] rounded-xl border border-stroke bg-glass px-[14px] py-[9px] text-[13.5px] text-text-tertiary transition-colors duration-200 hover:border-stroke-hi hover:text-text-secondary"
+        className="mx-auto flex max-w-[440px] flex-1 cursor-text items-center gap-[9px] rounded-md border border-stroke bg-glass px-[14px] py-[9px] text-[13.5px] text-text-tertiary transition-colors duration-200 hover:border-stroke-hi hover:text-text-secondary"
       >
         <Search className="h-4 w-4 shrink-0" strokeWidth={2} />
         <span className="truncate">搜索技能、分类、Pack…</span>
@@ -85,7 +85,7 @@ export function Topbar({
       {/* 右侧操作区 */}
       <div className="flex shrink-0 items-center gap-2">
         {/* 技能总数 Pill */}
-        <div className="flex items-center gap-[7px] rounded-full border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary">
+        <div className="flex items-center gap-[7px] rounded-md border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary">
           <span
             className="h-[7px] w-[7px] rounded-full"
             style={{

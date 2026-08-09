@@ -334,7 +334,7 @@ export function DetailSheet({
         className="glass-sheet flex w-[min(90vw,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
       >
         {/* 顶部三色渐变条 */}
-        <div className="h-[3px] shrink-0 bg-gradient-to-r from-brand via-cyan to-amber" />
+        <div className="h-[3px] shrink-0 bg-brand" />
 
         {/* 头部 */}
         <div className="flex shrink-0 items-start gap-[14px] border-b border-stroke px-6 pb-4 pt-5">

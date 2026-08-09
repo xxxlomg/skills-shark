@@ -220,7 +220,7 @@ export function CreationView({
 
       {/* 重命名小弹窗（菜单项入口） */}
       <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-4 w-4 text-primary" />
@@ -254,7 +254,7 @@ export function CreationView({
 
       {/* 覆盖 openai.yaml 确认 */}
       <Dialog open={!!confirmCodex} onOpenChange={(o) => !o && setConfirmCodex(null)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-4 w-4 text-primary" />
@@ -351,7 +351,7 @@ function AuthoredCard({
           }}
           className="glass-card glass-card-hover card-glow relative flex w-full cursor-pointer items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
         >
-          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-brand opacity-85" />
           <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-[22px] leading-none">
             {skill.emoji || "🧩"}
           </span>

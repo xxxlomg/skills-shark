@@ -46,7 +46,7 @@ export const FeaturedCard = memo(function FeaturedCard({
             <span className="grid h-[46px] w-[46px] place-items-center rounded-[13px] border border-stroke bg-glass-2 text-brand">
               <Folder className="h-[22px] w-[22px]" />
             </span>
-            <span className="rounded-full border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-text-secondary">
+            <span className="rounded-md border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-text-secondary">
               {total}
             </span>
           </div>
@@ -67,7 +67,7 @@ export const FeaturedCard = memo(function FeaturedCard({
                 e.stopPropagation();
                 onSkillClick(s);
               }}
-              className="inline-flex items-center gap-[7px] whitespace-nowrap rounded-[11px] border border-stroke bg-glass-2 px-[11px] py-[7px] text-[12.5px] text-text-secondary transition-all duration-200 hover:-translate-y-[2px] hover:border-stroke-hi hover:text-text-primary"
+              className="inline-flex items-center gap-[7px] whitespace-nowrap rounded-[11px] border border-stroke bg-glass-2 px-[11px] py-[7px] text-[12.5px] text-text-secondary transition-all duration-200 hover:border-stroke-hi hover:text-text-primary"
             >
               <span className={`sd sd-${skillStatus(s)}`} />
               {s.title_zh || s.name}
@@ -80,7 +80,7 @@ export const FeaturedCard = memo(function FeaturedCard({
                 e.stopPropagation();
                 onOpenFolder();
               }}
-              className="inline-flex items-center whitespace-nowrap rounded-[11px] border border-stroke bg-glass-2 px-[11px] py-[7px] text-[12.5px] text-brand transition-all duration-200 hover:-translate-y-[2px] hover:border-stroke-hi"
+              className="inline-flex items-center whitespace-nowrap rounded-[11px] border border-stroke bg-glass-2 px-[11px] py-[7px] text-[12.5px] text-brand transition-all duration-200 hover:border-stroke-hi"
             >
               +{more} 查看全部
             </button>

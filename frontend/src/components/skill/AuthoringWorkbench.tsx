@@ -688,7 +688,7 @@ export function AuthoringWorkbench({
     // R3-2：整页 h-dvh 列布局，页面不滚；pt-4(16)+顶栏 h-12(48)=64 → 抽屉 top-16 对齐
     <div className="flex h-dvh flex-col gap-3 py-4">
       {/* X1 顶栏：整页不滚后恒可见（保留 sticky 无害） */}
-      <div className="sticky top-0 z-40 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 py-1.5 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 py-1.5">
         <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回创作列表
@@ -1042,7 +1042,7 @@ export function AuthoringWorkbench({
             showCloseButton={false}
             // 推拉抽屉：点编辑区等外部不收起（复制正文不误触），仅顶栏按钮 / Esc 收起
             onInteractOutside={(e) => e.preventDefault()}
-            className="absolute bottom-0 left-0 top-0 flex w-[400px] flex-col rounded-2xl border p-0 shadow-xl sm:max-w-[400px]"
+            className="absolute bottom-0 left-0 top-0 flex w-[400px] flex-col rounded-lg border p-0 sm:max-w-[400px]"
           >
             <SheetHeader className="flex-row items-center justify-between px-5 pb-1 pt-4">
               <SheetTitle className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
@@ -1256,7 +1256,7 @@ export function AuthoringWorkbench({
 
       {/* X4 AI 创作 Dialog */}
       <Dialog open={aiOpen} onOpenChange={(o) => !o && setAiOpen(false)}>
-        <DialogContent className="max-w-md border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-md border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -1296,7 +1296,7 @@ export function AuthoringWorkbench({
         open={confirmApply}
         onOpenChange={(o) => !o && setConfirmApply(false)}
       >
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>替换当前正文？</DialogTitle>
           </DialogHeader>
@@ -1329,7 +1329,7 @@ export function AuthoringWorkbench({
         open={confirmExit}
         onOpenChange={(o) => !o && setConfirmExit(false)}
       >
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>有未保存改动</DialogTitle>
           </DialogHeader>

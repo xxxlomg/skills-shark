@@ -1,5 +1,6 @@
 /** 主题色预设：与 index.css 的 [data-accent] 块一一对应。 */
 export const ACCENTS = [
+  { id: "coral", name: "珊瑚橙", dark: "#ff6a45", light: "#ff6a45" },
   { id: "moss", name: "苔绿", dark: "#a8c686", light: "#55763c" },
   { id: "violet", name: "黛紫", dark: "#a78bfa", light: "#7c3aed" },
   { id: "azure", name: "湖蓝", dark: "#7dd3fc", light: "#0369a1" },
@@ -17,7 +18,7 @@ export function getAccent(): AccentId {
   } catch {
     /* localStorage 不可用时静默回退默认 */
   }
-  return "moss";
+  return "coral";
 }
 
 /** 立即生效（写属性 + 持久化），无需重启。 */

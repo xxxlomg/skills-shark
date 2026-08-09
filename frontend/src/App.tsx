@@ -823,7 +823,7 @@ function App() {
         open={!!renameTarget}
         onOpenChange={(o) => !o && !renaming && setRenameTarget(null)}
       >
-        <DialogContent className="border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>修改 Pack 名称</DialogTitle>
             <DialogDescription>

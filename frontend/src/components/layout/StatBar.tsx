@@ -33,7 +33,7 @@ export function StatBar({ total, translated, outdated, lost, packCount }: StatBa
   ];
 
   return (
-    <div className="glass mx-auto mt-[22px] flex w-full flex-wrap items-center gap-x-[22px] gap-y-[10px] rounded-2xl px-[22px] py-[14px]">
+    <div className="glass mx-auto mt-[22px] flex w-full flex-wrap items-center gap-x-[22px] gap-y-[10px] rounded-lg px-[22px] py-[14px]">
       {items.map((item) => (
         <div key={item.label} className="flex items-center gap-[9px] text-[13px] text-text-secondary">
           <span

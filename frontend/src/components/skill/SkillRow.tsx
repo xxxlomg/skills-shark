@@ -29,7 +29,7 @@ export function SkillRow({ skill, onClick }: SkillRowProps) {
   return (
     <button
       onClick={onClick}
-      className={`group flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-all hover:border-primary/30 hover:shadow-md active:scale-[0.99] ${
+      className={`group flex w-full items-center gap-3 rounded-md border border-border bg-card px-4 py-3 text-left transition-all hover:border-primary/30 ${
         isDeleted ? "opacity-60" : ""
       }`}
     >

@@ -24,12 +24,12 @@ interface PackCardProps {
 
 /** hover 微抬升+提亮+辉光；active 收缩+回落，给出明确按压反馈 */
 const pressable =
-  "transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.95] active:duration-75";
+  "transition-all duration-200";
 const ghostBtn =
-  "inline-flex items-center gap-[6px] rounded-full border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary hover:border-stroke-hi hover:bg-glass-2 hover:text-text-primary hover:shadow-[0_8px_20px_-10px_var(--shadow)] " +
+  "inline-flex items-center gap-[6px] rounded-md border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary hover:border-stroke-hi hover:bg-glass-2 hover:text-text-primary " +
   pressable;
 const primaryBtn =
-  "inline-flex items-center gap-[6px] rounded-full border border-transparent bg-gradient-to-br from-brand-2 to-brand px-[13px] py-[7px] text-[12.5px] font-medium text-white shadow-[0_6px_18px_-8px_var(--glow)] hover:brightness-[1.12] hover:shadow-[0_10px_26px_-8px_var(--glow)] active:brightness-[0.97] active:shadow-[0_3px_10px_-6px_var(--glow)] " +
+  "inline-flex items-center gap-[6px] rounded-full border border-transparent bg-brand px-[13px] py-[7px] text-[12.5px] font-medium text-white " +
   pressable;
 
 /** 技能名 tag 上限：超出折叠为 +N */
@@ -48,7 +48,7 @@ export function PackCard({ pack, index, onAction, publishDisabledReason, publish
             <Package className="h-[22px] w-[22px]" />
           </span>
           <div className="flex items-center gap-1">
-            <span className="rounded-full border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-brand">
+            <span className="rounded-md border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-brand">
               v{pack.ver}
             </span>
             {/* 右上角操作菜单：修改名称 / 删除（网格布局） */}
@@ -57,7 +57,7 @@ export function PackCard({ pack, index, onAction, publishDisabledReason, publish
                 <button
                   type="button"
                   aria-label="Pack 操作"
-                  className="iconbtn h-7 w-7 rounded-full"
+                  className="iconbtn h-7 w-7 rounded-md"
                 >
                   <MoreVertical className="h-4 w-4" />
                 </button>

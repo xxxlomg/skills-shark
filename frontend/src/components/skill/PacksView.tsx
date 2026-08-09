@@ -113,7 +113,7 @@ export function PacksView({
                     <span className="truncate font-display text-[14.5px] font-semibold text-text-primary">
                       {p.name}
                     </span>
-                    <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] font-mono text-[10.5px] text-brand">
+                    <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-2 py-[2px] font-mono text-[10.5px] text-brand">
                       v{p.ver}
                     </span>
                   </div>

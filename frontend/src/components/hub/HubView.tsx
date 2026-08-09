@@ -328,7 +328,7 @@ export function HubView({
             type="button"
             aria-label="引用操作"
             disabled={busy}
-            className="iconbtn h-7 w-7 rounded-full"
+            className="iconbtn h-7 w-7 rounded-md"
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -501,7 +501,7 @@ export function HubView({
                 </span>
               }
             >
-              <span className="ml-1 inline-grid h-[15px] w-[15px] cursor-help place-items-center rounded-full border border-stroke bg-glass-2 align-middle font-mono text-[10px] text-text-tertiary hover:border-stroke-hi hover:text-text-secondary">
+              <span className="ml-1 inline-grid h-[15px] w-[15px] cursor-help place-items-center rounded-md border border-stroke bg-glass-2 align-middle font-mono text-[10px] text-text-tertiary hover:border-stroke-hi hover:text-text-secondary">
                 ?
               </span>
             </Tip>

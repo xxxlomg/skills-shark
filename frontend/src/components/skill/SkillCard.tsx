@@ -26,7 +26,7 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, onClick
           className="glass-card glass-card-hover card-glow relative flex w-full items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
         >
           {/* 列表态：左侧竖向装饰条 */}
-          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-brand opacity-85" />
           <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-[20px]">
             {skill.emoji || "🧩"}
           </span>

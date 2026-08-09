@@ -192,7 +192,7 @@ export function InstallDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onOpenChange(false)}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden border-border/60 bg-card">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-primary" />
