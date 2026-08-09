@@ -1,6 +1,14 @@
-import { useMemo, useState, useCallback, useEffect } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import type { Skill, SkillGroup } from "@/hooks/useSkills";
+import type { CreatedFolder } from "@/hooks/useCreatedFolders";
 import { collectionDisplayName } from "@/hooks/useSkills";
 
 /**
@@ -43,6 +51,8 @@ interface SkillTreeProps {
   selectedSkillId: string | null;
   onOpenCollection: (label: string, collection: string | null) => void;
   onOpenSkill: (skill: Skill) => void;
+  /** 本会话新建的空文件夹（0 技能，扫描结果里不出现），补挂到树里 */
+  emptyFolders?: CreatedFolder[];
 }
 
 function readOpen(): Set<string> {
@@ -55,14 +65,25 @@ function readOpen(): Set<string> {
   }
 }
 
-export function SkillTree({
-  groups,
-  currentLabel,
-  currentCollection,
-  selectedSkillId,
-  onOpenCollection,
-  onOpenSkill,
-}: SkillTreeProps) {
+/** 供父组件（侧栏头部）调用的一键展开/收起句柄 */
+export interface SkillTreeHandle {
+  expandAll: () => void;
+  collapseAll: () => void;
+}
+
+export const SkillTree = forwardRef<SkillTreeHandle, SkillTreeProps>(
+  function SkillTree(
+    {
+      groups,
+      currentLabel,
+      currentCollection,
+      selectedSkillId,
+      onOpenCollection,
+      onOpenSkill,
+      emptyFolders,
+    },
+    ref
+  ) {
   const [open, setOpen] = useState<Set<string>>(readOpen);
 
   const toggle = useCallback((key: string) => {
@@ -79,35 +100,71 @@ export function SkillTree({
     });
   }, []);
 
-  const tree = useMemo<ToolNode[]>(
-    () =>
-      groups.map((g) => {
-        const collMap = new Map<string, Skill[]>();
-        const indep: Skill[] = [];
-        for (const s of g.skills) {
-          if (s.parent_collection) {
-            if (!collMap.has(s.parent_collection))
-              collMap.set(s.parent_collection, []);
-            collMap.get(s.parent_collection)!.push(s);
-          } else {
-            indep.push(s);
-          }
+  // 点击菜单项时确保展开（即使已在该分支、useEffect 不再触发，也能重新展开）
+  const openBranch = useCallback((key: string) => {
+    setOpen((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev).add(key);
+      try {
+        localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  const tree = useMemo<ToolNode[]>(() => {
+    const tools: ToolNode[] = groups.map((g) => {
+      const collMap = new Map<string, Skill[]>();
+      const indep: Skill[] = [];
+      for (const s of g.skills) {
+        if (s.parent_collection) {
+          if (!collMap.has(s.parent_collection))
+            collMap.set(s.parent_collection, []);
+          collMap.get(s.parent_collection)!.push(s);
+        } else {
+          indep.push(s);
         }
-        const colls: CollNode[] = [...collMap.entries()]
-          .map(([collection, skills]) => ({
-            key: `coll:${g.label}\u241f${collection}`,
-            collection,
-            skills,
-          }))
-          .sort((a, b) =>
-            collectionDisplayName(a.collection).localeCompare(
-              collectionDisplayName(b.collection)
-            )
-          );
-        return { label: g.label, count: g.skills.length, indep, colls };
-      }),
-    [groups]
-  );
+      }
+      const colls: CollNode[] = [...collMap.entries()]
+        .map(([collection, skills]) => ({
+          key: `coll:${g.label}\u241f${collection}`,
+          collection,
+          skills,
+        }))
+        .sort((a, b) =>
+          collectionDisplayName(a.collection).localeCompare(
+            collectionDisplayName(b.collection)
+          )
+        );
+      return { label: g.label, count: g.skills.length, indep, colls };
+    });
+    // 合并本会话新建的空文件夹（0 技能扫描结果里不出现，这里补上）
+    for (const f of emptyFolders ?? []) {
+      let tool = tools.find((t) => t.label === f.label);
+      if (!tool) {
+        tool = { label: f.label, count: 0, indep: [], colls: [] };
+        tools.push(tool);
+      }
+      if (
+        f.collection !== null &&
+        !tool.colls.some((c) => c.collection === f.collection)
+      ) {
+        tool.colls.push({
+          key: `coll:${f.label}\u241f${f.collection}`,
+          collection: f.collection,
+          skills: [],
+        });
+        tool.colls.sort((a, b) =>
+          collectionDisplayName(a.collection).localeCompare(
+            collectionDisplayName(b.collection)
+          )
+        );
+      }
+    }
+    return tools;
+  }, [groups, emptyFolders]);
 
   // 当前所在分支：导航到时自动展开一次（可读性优先），
   // 之后允许用户手动折叠——不再每次渲染强制展开，
@@ -135,6 +192,37 @@ export function SkillTree({
   }, [activeToolKey, activeCollKey]);
 
   const isOpen = (key: string) => open.has(key);
+
+  /** 一键展开全部（工具 + 合集全进 open 集） */
+  const expandAll = useCallback(() => {
+    const next = new Set<string>();
+    for (const t of tree) {
+      next.add(`tool:${t.label}`);
+      for (const c of t.colls) next.add(c.key);
+    }
+    setOpen(next);
+    try {
+      localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+    } catch {
+      /* ignore */
+    }
+  }, [tree]);
+
+  /** 一键收起全部（清空 open 集） */
+  const collapseAll = useCallback(() => {
+    setOpen(new Set());
+    try {
+      localStorage.setItem(TREE_OPEN_KEY, "");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // 暴露给父组件（侧栏头部的紧凑展开/收起控件）
+  useImperativeHandle(ref, () => ({ expandAll, collapseAll }), [
+    expandAll,
+    collapseAll,
+  ]);
 
   const skillActive = (id: string) => id === selectedSkillId;
 
@@ -189,7 +277,10 @@ export function SkillTree({
               </button>
               <button
                 type="button"
-                onClick={() => onOpenCollection(tool.label, null)}
+                onClick={() => {
+                  openBranch(toolKey);
+                  onOpenCollection(tool.label, null);
+                }}
                 className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-1.5 text-left"
               >
                 <Folder
@@ -242,9 +333,10 @@ export function SkillTree({
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            onOpenCollection(tool.label, coll.collection)
-                          }
+                          onClick={() => {
+                            openBranch(coll.key);
+                            onOpenCollection(tool.label, coll.collection);
+                          }}
                           className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-1.5 text-left"
                         >
                           <FolderOpen
@@ -281,4 +373,5 @@ export function SkillTree({
       })}
     </div>
   );
-}
+  }
+);

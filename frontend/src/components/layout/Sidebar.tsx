@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   RefreshCw,
   Sun,
@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LINKS } from "@/lib/links";
 import { VIEW_REGISTRY, type ViewId } from "@/lib/view-registry";
-import { SkillTree } from "./SkillTree";
+import { SkillTree, type SkillTreeHandle } from "./SkillTree";
+import { ExpandCollapseAll } from "@/components/common/ExpandCollapseAll";
 import type { Skill, SkillGroup } from "@/hooks/useSkills";
 
 /**
@@ -51,6 +52,8 @@ interface SidebarProps {
   selectedSkillId: string | null;
   onOpenCollection: (label: string, collection: string | null) => void;
   onOpenSkill: (skill: Skill) => void;
+  /** 本会话新建的空文件夹，补进目录树 */
+  emptyFolders?: { label: string; collection: string | null }[];
   // 顶栏功能收编（PLAN-10 侧栏重构）
   syncing?: boolean;
   onSync: () => void;
@@ -67,6 +70,7 @@ export function Sidebar({
   selectedSkillId,
   onOpenCollection,
   onOpenSkill,
+  emptyFolders,
   syncing,
   onSync,
   onOpenSettings,
@@ -93,6 +97,9 @@ export function Sidebar({
       }
       return next;
     });
+
+  // 目录树展开/收起句柄：头部紧凑控件经此调用 SkillTree 内部方法
+  const treeRef = useRef<SkillTreeHandle>(null);
 
   return (
     <aside
@@ -173,31 +180,34 @@ export function Sidebar({
         }`}
       />
 
-      {/* ===== 可滚动区：技能库目录树（折叠态隐藏，但保留占位撑满高度） ===== */}
+      {/* ===== 可滚动区：技能库目录树（折叠态隐藏，但保留占位撑满高度）。
+          目录树始终显示（不随主菜单切换隐藏）——无论当前在哪个视图都能一眼看到树，
+          点击树节点即跳回技能库对应分支。===== */}
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
-        {!collapsed &&
-          (activeTab === "lib" ? (
-            <>
-              <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-                <Boxes className="h-3 w-3" />
+        {!collapsed && (
+          <>
+            <div className="mb-1.5 flex items-center justify-between gap-1.5 px-1">
+              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-text-tertiary">
+                <Boxes className="h-[15px] w-[15px]" />
                 技能库目录
-              </div>
-              <SkillTree
-                groups={groups}
-                currentLabel={currentLabel}
-                currentCollection={currentCollection}
-                selectedSkillId={selectedSkillId}
-                onOpenCollection={onOpenCollection}
-                onOpenSkill={onOpenSkill}
+              </h2>
+              <ExpandCollapseAll
+                onExpandAll={() => treeRef.current?.expandAll()}
+                onCollapseAll={() => treeRef.current?.collapseAll()}
               />
-            </>
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-4 text-center text-[12px] leading-relaxed text-text-tertiary">
-              目录树仅在技能库视图显示
-              <br />
-              切换左侧菜单可回到技能库
             </div>
-          ))}
+            <SkillTree
+              ref={treeRef}
+              groups={groups}
+              currentLabel={currentLabel}
+              currentCollection={currentCollection}
+              selectedSkillId={selectedSkillId}
+              onOpenCollection={onOpenCollection}
+              onOpenSkill={onOpenSkill}
+              emptyFolders={emptyFolders}
+            />
+          </>
+        )}
       </div>
 
       {/* ===== 底部固定：用户栏式单菜单按钮 =====
@@ -263,6 +273,7 @@ export function Sidebar({
           </DropdownMenu>
         </div>
       </div>
+
     </aside>
   );
 }

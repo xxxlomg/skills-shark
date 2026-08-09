@@ -14,3 +14,9 @@ export const MOCK_PACKS: PackInfo[] = [
     skill_names: ["browser-cdp", "make-skill", "cron-job"],
   },
 ];
+
+/**
+ * Mock 安装记录：deploy_root → 已部署的 skill folder 列表。
+ * 用于模拟 D2 同名冲突（同目标二次安装 → 全部冲突）与覆盖/跳过流程。
+ */
+export const MOCK_INSTALLS = new Map<string, string[]>();

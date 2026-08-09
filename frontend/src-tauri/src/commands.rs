@@ -483,10 +483,100 @@ pub fn pack_import(path: String) -> Result<pack::PackInfo, String> {
 }
 
 #[tauri::command]
-pub fn pack_install(id: String) -> Result<usize, String> {
-    let n = pack::install_pack(&config::packs_dir(), &config::imported_dir(), &id)?;
-    config::ensure_imported_scan_path();
+pub fn pack_install_preview(id: String, target_dir: String) -> Result<pack::InstallPreview, String> {
+    let deploy_root = std::path::Path::new(&target_dir).join("skills");
+    pack::install_pack_preview(&config::packs_dir(), &deploy_root, &id)
+}
+
+#[tauri::command]
+pub fn pack_install_commit(
+    id: String,
+    target_dir: String,
+    overwrite: Vec<String>,
+) -> Result<usize, String> {
+    let deploy_root = std::path::Path::new(&target_dir).join("skills");
+    // D8：命中现有工具根 → 复用；D7：否则新建扫描根自定义工具
+    let (tool_id, scan_label) = match config::find_tool_for_scan_path(&deploy_root) {
+        Some((tid, label)) => (tid, label),
+        None => config::add_scan_root_tool(&deploy_root)?,
+    };
+    let n = pack::install_pack_commit(
+        &config::packs_dir(),
+        &deploy_root,
+        &id,
+        &overwrite,
+        &tool_id,
+        &scan_label,
+    )?;
     Ok(n)
+}
+
+/// 在技能库目录树中新建一个文件夹（合集）。
+/// tool 按 id 或显示名定位；name 为要新建的文件夹名（会做安全清洗）。
+/// 在工具首个可写扫描目录下创建 `name` 子目录，返回创建后的绝对路径。
+#[tauri::command]
+pub fn create_skill_folder(tool: String, name: String) -> Result<String, String> {
+    let cfg = config::load_config();
+    let entry = cfg
+        .tools
+        .iter()
+        .find(|t| t.id == tool || t.name == tool)
+        .ok_or_else(|| format!("工具不存在：{tool}"))?;
+    let base = config::scan_targets_from_tools(std::slice::from_ref(entry))
+        .into_iter()
+        .next()
+        .map(|t| std::path::PathBuf::from(t.path))
+        .ok_or_else(|| format!("工具「{}」没有可写的扫描目录", entry.name))?;
+    // 安全清洗：去掉路径分隔符与非法字符，取首段
+    let clean: String = name
+        .trim()
+        .chars()
+        .take(64)
+        .map(|c| if c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' { ' ' } else { c })
+        .collect();
+    let clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.is_empty() {
+        return Err("文件夹名为空".to_string());
+    }
+    let dest = base.join(&clean);
+    if dest.is_dir() {
+        return Ok(dest.to_string_lossy().to_string());
+    }
+    std::fs::create_dir_all(&dest)
+        .map_err(|e| format!("新建文件夹失败：{e}"))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// 新建一个【全新】的文件夹位置：创建目录并注册为自定义工具根（出现在目录树）。
+/// 用于"未选中树节点"时通过 Windows 目录选择器挑出的全新路径。
+/// 唯一性：文件路径是唯一判定标准——若该路径已是某工具的扫描路径，直接拒绝，
+/// 不再生成 testSkills-2/-3 之类的编号副本。
+#[tauri::command]
+pub fn add_folder_root(path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("路径为空".to_string());
+    }
+    let mut cfg = config::load_config();
+    if let Some(owner) = config::path_taken_by(&cfg.tools, trimmed, None) {
+        return Err(format!("该目录已是「{}」的扫描路径，无需重复添加：{}", owner, trimmed));
+    }
+    let p = std::path::PathBuf::from(trimmed);
+    std::fs::create_dir_all(&p).map_err(|e| format!("创建目录失败：{e}"))?;
+    let name0 = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "skills".to_string());
+    let mut name = name0.clone();
+    let mut k = 2;
+    while cfg.tools.iter().any(|t| t.name == name) {
+        name = format!("{}-{}", name0, k);
+        k += 1;
+    }
+    let entry = config::add_tool(&mut cfg.tools, &name, &[trimmed.to_string()])?;
+    let _ = config::save_config(&cfg);
+    Ok(entry.id)
 }
 
 #[tauri::command]

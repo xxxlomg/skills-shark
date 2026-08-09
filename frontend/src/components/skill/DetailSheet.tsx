@@ -9,6 +9,7 @@ import {
   FolderSymlink,
   Save,
   StopCircle,
+  PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -45,6 +46,8 @@ interface DetailSheetProps {
   onLinkSkill?: (skill: Skill) => void;
   /** C10：frontmatter 编辑后刷新列表 */
   onEdited?: () => void;
+  /** 打开创作工作台编辑存量技能 */
+  onEdit?: (skill: Skill) => void;
 }
 
 export function DetailSheet({
@@ -55,6 +58,7 @@ export function DetailSheet({
   onTranslateDone,
   onLinkSkill,
   onEdited,
+  onEdit,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
   const [bilingual, setBilingual] = useState<BilingualContent | null>(null);
@@ -442,6 +446,19 @@ export function DetailSheet({
               >
                 <StopCircle className="h-3.5 w-3.5" />
                 停止
+              </button>
+            )}
+
+            {/* 编辑存量技能：打开创作工作台编辑态（用户可在原技能基础上改写） */}
+            {!isDeleted && onEdit && (
+              <button
+                type="button"
+                className="mbtn !text-primary"
+                onClick={() => onEdit(skill)}
+                title="在创作工作台中编辑此技能"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                编辑
               </button>
             )}
 

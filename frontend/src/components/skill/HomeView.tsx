@@ -1,4 +1,5 @@
-import { Archive, GitBranch, PenLine } from "lucide-react";
+import { useMemo } from "react";
+import { Archive, FolderPlus, GitBranch } from "lucide-react";
 import { FolderCard } from "./FolderCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { GhostCard } from "@/components/common/GhostCard";
@@ -14,8 +15,10 @@ interface HomeViewProps {
   onSkillClick: (skill: Skill) => void;
   onGitImport: () => void;
   onZipImport: () => void;
-  /** C5：新建技能（模板模式） */
-  onNewSkill?: () => void;
+  /** 技能库页头「新建文件夹」入口（顶栏布局的主入口） */
+  onNewFolder?: () => void;
+  /** 本会话新建的空工具根（0 技能），补一张空卡片 */
+  extraFolderLabels?: string[];
 }
 
 export function HomeView({
@@ -26,9 +29,19 @@ export function HomeView({
   onSkillClick,
   onGitImport,
   onZipImport,
-  onNewSkill,
+  onNewFolder,
+  extraFolderLabels,
 }: HomeViewProps) {
   const totalSkills = groups.reduce((sum, g) => sum + g.skills.length, 0);
+
+  // 新建但尚无技能的工具根（不在 groups 里），补空卡片
+  const extraTools = useMemo(
+    () =>
+      (extraFolderLabels ?? []).filter(
+        (l) => !groups.some((g) => g.label === l)
+      ),
+    [extraFolderLabels, groups]
+  );
 
   let idx = 0;
 
@@ -38,10 +51,15 @@ export function HomeView({
         title="技能库"
         subtitle={`${groups.length} 个分类 · ${totalSkills} 个技能 · 跨工具统一管理`}
       >
-        {onNewSkill && (
-          <button type="button" className="mbtn primary" onClick={onNewSkill}>
-            <PenLine className="h-3.5 w-3.5" />
-            新建技能
+        {onNewFolder && (
+          <button
+            type="button"
+            onClick={onNewFolder}
+            title="新建文件夹"
+            aria-label="新建文件夹"
+            className="iconbtn shrink-0"
+          >
+            <FolderPlus className="h-4 w-4" />
           </button>
         )}
         <LayoutToggle value={layout} onChange={onLayoutChange} />
@@ -100,6 +118,15 @@ export function HomeView({
               onSkillClick={onSkillClick}
             />
           ))}
+          {extraTools.map((l) => (
+            <FolderCard
+              key={`empty:${l}`}
+              group={{ label: l, skills: [] }}
+              index={idx++}
+              layout="grid"
+              onClick={() => onFolderClick(l)}
+            />
+          ))}
         </div>
       ) : (
         <div className="flex flex-col gap-[10px]">
@@ -126,6 +153,15 @@ export function HomeView({
               index={idx++}
               layout="list"
               onClick={() => onFolderClick(g.label)}
+            />
+          ))}
+          {extraTools.map((l) => (
+            <FolderCard
+              key={`empty:${l}`}
+              group={{ label: l, skills: [] }}
+              index={idx++}
+              layout="list"
+              onClick={() => onFolderClick(l)}
             />
           ))}
         </div>

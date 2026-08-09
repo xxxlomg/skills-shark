@@ -1,350 +1,338 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SkillsShark · 本地 AI 技能管理</title>
-    <meta
-      name="description"
-      content="扫描、翻译、跨工具引用、创作并打包分享你的 AI 技能。本地优先，数据与 Key 都留在你手里。Windows 免费开源。"
-    />
-    <link rel="icon" type="image/png" href="assets/shark-tile.png" />
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <!-- 顶部导航：页面级导航（使用手册 / Gitee），非页内锚点 -->
-    <header class="nav">
-      <div class="nav-inner">
-        <a class="brand" href="index.html" aria-label="SkillsShark 首页">
-          <img src="assets/shark-tile.png" alt="" width="26" height="26" />
-          <span>SkillsShark</span>
-        </a>
-        <nav class="nav-links" aria-label="页面导航">
-          <a href="manual.html">使用手册</a>
-          <a
-            href="https://gitee.com/xxxlomg/skills-shark"
-            target="_blank"
-            rel="noopener"
-            >Gitee</a
-          >
-        </nav>
-        <div class="nav-cta">
-          <a
-            class="btn btn-primary btn-sm"
-            href="https://gitee.com/xxxlomg/skills-shark/releases"
-            target="_blank"
-            rel="noopener"
-            >下载</a
-          >
-        </div>
-      </div>
-    </header>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillsShark · 技能鲨 — 本地 AI 技能管理、翻译与打包</title>
+  <meta name="description" content="SkillsShark 技能鲨是一款本地桌面工具，帮你扫描、翻译、管理与分享散落在 QwenPaw、Cursor、Claude Code 等各处的 AI Agent Skills。中文界面，一眼看懂，一用就会。" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" type="image/png" href="assets/skills-shark.png" />
+</head>
+<body>
 
-    <main>
-      <!-- Hero：左文案 · 右产品预览 -->
-      <section class="hero">
-        <div class="hero-copy reveal">
-          <span class="eyebrow">本地优先 · Windows · 开源</span>
-          <h1>散落各处的AI技能，<br />该有个家了。</h1>
-          <p class="hero-sub">
-            扫描、翻译、跨工具引用、创作、打包分享。一个把技能真正管起来的本地桌面应用。
-          </p>
-          <div class="hero-cta btn-row">
-            <a
-              class="btn btn-primary btn-lg"
-              href="https://gitee.com/xxxlomg/skills-shark/releases"
-              target="_blank"
-              rel="noopener"
-              >下载</a
-            >
-            <a class="btn btn-ghost btn-lg" href="manual.html">使用手册</a>
-          </div>
-        </div>
+  <!-- ===================== 顶栏 ===================== -->
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="SkillsShark 技能鲨">
+        <img class="brand-img" src="assets/skills-shark.png" alt="SkillsShark 技能鲨" />
+      </a>
+      <nav class="nav-links">
+        <a href="#capabilities">功能</a>
+        <a href="#workflow">工作流</a>
+        <a href="#data">数据</a>
+        <a href="manual.html">使用手册</a>
+        <a class="btn btn--primary" href="#download">下载 v0.2.1</a>
+      </nav>
+    </div>
+  </header>
 
-        <!-- 产品预览：技能库卡片（简化自真实界面） -->
-        <div class="preview reveal" data-delay="120">
-          <div class="window">
-            <div class="window-bar">
-              <i></i><i></i><i></i>
-              <span>技能库 · SkillsShark</span>
-            </div>
-            <div class="window-body">
-              <div class="skill-card">
-                <span class="glyph">C</span>
-                <div class="meta">
-                  <div class="t">web-research</div>
-                  <div class="s">claude-code · 网页研究代理</div>
-                </div>
-                <span class="badge">已翻译</span>
-              </div>
-              <div class="skill-card">
-                <span class="glyph">D</span>
-                <div class="meta">
-                  <div class="t">data-visualization</div>
-                  <div class="s">codex · 数据可视化</div>
-                </div>
-                <span class="badge plain">原文</span>
-              </div>
-              <div class="skill-card">
-                <span class="glyph">G</span>
-                <div class="meta">
-                  <div class="t">git-workflow</div>
-                  <div class="s">claude · 被 2 个工具引用</div>
-                </div>
-                <span class="badge">已翻译</span>
-              </div>
-            </div>
-          </div>
-          <div class="preview-float">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--accent)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M9 3H5a2 2 0 0 0-2 2v4" />
-              <path d="M15 3h4a2 2 0 0 1 2 2v4" />
-              <path d="M9 21H5a2 2 0 0 1-2-2v-4" />
-              <path d="M15 21h4a2 2 0 0 0 2-2v-4" />
-            </svg>
-            技能可跨工具引用 · <b>Hub</b>
-          </div>
-        </div>
-      </section>
+  <main id="top">
 
-      <!-- 信任条 -->
-      <div class="strapline">
-        <div class="strapline-inner">
-          <span>当前版本 <b>v0.2.1</b></span>
-          <span>支持 <b>Claude / Codex</b> 双生态规则校验</span>
-          <span>数据与 Key <b>全部留在本机</b></span>
-          <span><b>免费</b> 开源</span>
-        </div>
-      </div>
-
-      <!-- 工作流：五步，把技能用起来 -->
-      <section class="section pipeline">
-        <div class="wrap">
-          <div class="pipeline-head reveal">
-            <h2>五步，把技能用起来</h2>
-            <p>从「看不懂」到「传出去」，每一步都在本机完成。</p>
-          </div>
-          <div class="pipeline-grid">
-            <div class="step reveal">
-              <span class="n">01</span>
-              <h3>读懂它</h3>
-              <p>
-                英文技能流式翻译成中英对照，标题、描述、正文一起译，可随时停止。
-              </p>
-            </div>
-            <div class="step reveal" data-delay="60">
-              <span class="n">02</span>
-              <h3>管起来</h3>
-              <p>
-                扫描所有工具的 skills
-                目录，按工具分组、搜索，看清每个技能装在哪。
-              </p>
-            </div>
-            <div class="step reveal" data-delay="120">
-              <span class="n">03</span>
-              <h3>跨过去</h3>
-              <p>
-                用 junction 把技能引用到其他工具，不占空间，源更新自动同步。
-              </p>
-            </div>
-            <div class="step reveal" data-delay="180">
-              <span class="n">04</span>
-              <h3>写一个</h3>
-              <p>
-                创作工作台加 AI 直出 SKILL.md，Claude 与 Codex
-                双生态规则实时校验。
-              </p>
-            </div>
-            <div class="step reveal" data-delay="240">
-              <span class="n">05</span>
-              <h3>传出去</h3>
-              <p>
-                打包成 .skillpack 发给任何人，或一键发布到你的 git 仓库货架。
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 功能 bento：6 格，节奏与背景变化 -->
-      <section class="section">
-        <div class="wrap">
-          <div class="bento-head reveal">
-            <h2>为技能而生的工具箱</h2>
-            <p>翻译、引用、创作、分发，四个环节都有对应的工具。</p>
-          </div>
-          <div class="bento">
-            <article class="cell cell-accent cell-wide reveal">
-              <span class="tag">CORE</span>
-              <h3>流式翻译</h3>
-              <p>
-                中英对照实时呈现，增量重翻不浪费
-                token，译文过期自动提醒、一键重翻。元数据同译，卡片与搜索结果直接显示中文标题。
-              </p>
-            </article>
-            <article class="cell reveal" data-delay="60">
-              <span class="tag">SCAN</span>
-              <h3>多源扫描</h3>
-              <p>
-                内置主流 AI
-                工具来源，也能自定义路径，一次同步全部入库，自动去重归档。
-              </p>
-            </article>
-            <article class="cell reveal" data-delay="120">
-              <span class="tag">HUB</span>
-              <h3>引用台账</h3>
-              <p>
-                junction、复制、移动三种方式，台账登记、反向引用、断链自动检测与修复。
-              </p>
-            </article>
-            <article class="cell cell-glow reveal" data-delay="120">
-              <span class="tag">AUTHOR</span>
-              <h3>创作工作台</h3>
-              <p>
-                文件树、双栏编辑、改名同步、AI
-                流式创作。校验器盯着每个字段，命名、描述不合规立刻告诉你怎么改。
-              </p>
-            </article>
-            <article class="cell reveal" data-delay="60">
-              <span class="tag">PACK</span>
-              <h3>Skill Packs</h3>
-              <p>勾选打包，带译文分发。三道闸校验，导入即还原。</p>
-            </article>
-            <article class="cell cell-dots reveal" data-delay="120">
-              <span class="tag">GIT</span>
-              <h3>Git 货架</h3>
-              <p>
-                仓库即货架。浏览导入别人的
-                Pack，也把自己的发布出去，凭据走你自己的 git 配置。
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <!-- 本地优先：大字陈述 -->
-      <section class="manifesto">
-        <div class="wrap section">
-          <div class="reveal">
-            <h2>你的 Key、你的技能、你的数据，<br />都留在本机。</h2>
-            <p class="sub">
-              SkillsShark 是本地优先设计。除你主动配置的模型服务与 git
-              远端，不产生任何网络请求。
-            </p>
-          </div>
-          <ul class="facts">
-            <li class="reveal">
-              <b>配置与 Key</b>只写在本机数据目录，绝不进入业务数据流。
-            </li>
-            <li class="reveal" data-delay="60">
-              <b>操作全本地</b>翻译、打包、引用全部在本机完成。
-            </li>
-            <li class="reveal" data-delay="120">
-              <b>一键迁移</b>备份一个数据目录，完整带走所有数据。
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <!-- 数据安全：数据目录一览 -->
-      <section class="secure">
+    <!-- ===================== Hero ===================== -->
+    <section class="hero">
+      <div class="container hero-grid">
         <div class="reveal">
-          <h2>数据放在哪，一目了然</h2>
-          <p>
-            所有数据统一存放在本机数据目录，Windows 下为
-            <code>%APPDATA%\Skills Shark</code>（可用
-            <code>SKILLS_SHARK_DATA</code> 整体改址）。
-          </p>
+          <p class="eyebrow">本地 AI 技能管理 · v0.2.1</p>
+          <h1 class="display">把散落的 AI 技能，<br class="hero-br"/>收进一个看得懂的地方。</h1>
+          <p class="lead">本地桌面工具。一键扫进 QwenPaw、Cursor、Claude Code 等所有 AI 工具里的 Skills，<br class="hero-br"/>自动翻译成中文，可一键打包分享。</p>
+          <p class="hero-tokens">SCAN&nbsp;&nbsp;·&nbsp;&nbsp;TRANSLATE&nbsp;&nbsp;·&nbsp;&nbsp;MANAGE&nbsp;&nbsp;·&nbsp;&nbsp;PACK</p>
+          <div class="hero-actions">
+            <a class="btn btn--primary" href="#download">下载 Windows 版</a>
+            <a class="btn btn--ghost" href="manual.html">阅读使用手册 <span class="arrow">→</span></a>
+          </div>
+          <div class="hero-meta">
+            <span><i class="dot"></i> Windows x64</span>
+            <span><i class="dot"></i> 免登录</span>
+            <span><i class="dot"></i> 数据存本地</span>
+          </div>
+        </div>
+
+        <!-- 产品窗口 mock（纯 CSS） -->
+        <div class="reveal window" data-delay="120">
+          <div class="window-bar">
+            <span class="tb"></span><span class="tb"></span><span class="tb"></span>
+          </div>
+          <div class="window-body">
+            <aside class="window-side">
+              <p class="s-label">技能库</p>
+              <div class="s-item active">全部 <span class="badge">42</span></div>
+              <div class="s-item">QwenPaw <span class="badge">18</span></div>
+              <div class="s-item">Cursor <span class="badge">12</span></div>
+              <div class="s-item">Claude <span class="badge">7</span></div>
+              <div class="s-item">导入 <span class="badge">5</span></div>
+              <p class="s-label" style="margin-top:14px">引用</p>
+              <div class="s-item">Hub 台账 <span class="badge">9</span></div>
+              <div class="s-item">Packs <span class="badge">3</span></div>
+            </aside>
+            <div class="window-main">
+              <div class="m-head">
+                <span class="m-title">pdf</span>
+                <span class="m-tag">翻译中</span>
+              </div>
+              <div class="m-row">
+                <div class="r1">skill-creator</div>
+                <div class="r2">创建有效 Agent Skill 的指南</div>
+                <div class="prog"><i style="width:100%"></i></div>
+              </div>
+              <div class="m-row">
+                <div class="r1">docx</div>
+                <div class="r2">Office 文档读写</div>
+                <div class="prog"><i style="width:68%"></i></div>
+              </div>
+              <div class="m-row">
+                <div class="r1">browser</div>
+                <div class="r2">浏览器自动化</div>
+                <div class="prog"><i style="width:34%"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 痛点陈述 ===================== -->
+    <section class="statement section--flush">
+      <div class="container reveal">
+        <p>你装了一堆 AI 工具，技能却<span class="hl">散落各处</span>、<span class="hl">看不懂英文</span>、<span class="hl">没法分享</span>。<br/>SkillsShark 一次解决。</p>
+      </div>
+    </section>
+
+    <!-- ===================== 能力网格 ===================== -->
+    <section id="capabilities" class="section">
+      <div class="container">
+        <div class="sec-head reveal">
+          <div class="idx">01—08</div>
+          <div class="title">
+            <h2 class="h2">八项能力，覆盖技能的整个生命周期</h2>
+            <p>从把别人的技能看明白，到把自己做的技能发出去——都在一个本地应用里完成。</p>
+          </div>
+        </div>
+
+        <div class="cap-grid reveal">
+          <article class="cap">
+            <div class="c-num">01</div>
+            <h3>多源扫描</h3>
+            <p>配置多个 skills 目录（路径 / 标签 / 启用开关），按标签分组展示；源目录删了自动标记，不再误点。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">02</div>
+            <h3>流式翻译</h3>
+            <p>调 LLM 流式生成中英对照，大文件自动分块；哈希增量跳过未变化原文，并自动派生中文标题与描述。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">03</div>
+            <h3>浏览视图</h3>
+            <p>分类卡 → 分类详情 → 详情抽屉三级导航，网格 / 列表双布局；<code class="kbd">Ctrl</code>+<code class="kbd">K</code> 全局搜索，中英文全字段命中。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">04</div>
+            <h3>引用台账 Hub</h3>
+            <p>技能与 AI 工具之间的链接 / 副本统一管理，出处 → 落点可视化，左缘健康色条让状态一目了然。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">05</div>
+            <h3>Skill Packs</h3>
+            <p>勾选技能打包成 <code>.skillpack</code>，导入 / 导出 / 安装；sha256 逐文件自验，版本闸防错，同名自动改名。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">06</div>
+            <h3>导入管线</h3>
+            <p>支持本地 zip 与 Git URL 两种来源，安全解压预览；提交时拍平嵌套，同名文件自动改名，不覆盖已有。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">07</div>
+            <h3>创作工作台</h3>
+            <p>全页沉浸式写技能，AI 直出 SKILL.md 原文，分栏实时预览；草稿自动保存、三态恢复，<code class="kbd">Ctrl</code>+<code class="kbd">S</code> 即存。</p>
+          </article>
+          <article class="cap">
+            <div class="c-num">08</div>
+            <h3>统一 AI 层</h3>
+            <p>翻译 / AI 创作 / 连接测试共用一套 LLM 配置；各模块 prompt 模板集中在一处管理，维护省心。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 工作流 ===================== -->
+    <section id="workflow" class="section">
+      <div class="container">
+        <div class="sec-head reveal">
+          <div class="idx">FLOW</div>
+          <div class="title">
+            <h2 class="h2">五个动作，从乱到顺</h2>
+            <p>不需要先把所有工具研究透。打开应用，按这个顺序走一遍就够了。</p>
+          </div>
+        </div>
+
+        <div class="flow reveal">
+          <div class="step">
+            <div class="s-num">01</div>
+            <h3>扫描</h3>
+            <p>指向各 AI 工具的 skills 目录，一次收进统一列表。</p>
+          </div>
+          <div class="step">
+            <div class="s-num">02</div>
+            <h3>翻译</h3>
+            <p>流式生成中英对照，大文件分块、增量跳过，秒看中文。</p>
+          </div>
+          <div class="step">
+            <div class="s-num">03</div>
+            <h3>管理</h3>
+            <p>分类、搜索、引用台账，技能流向哪个工具一清二楚。</p>
+          </div>
+          <div class="step">
+            <div class="s-num">04</div>
+            <h3>分享</h3>
+            <p>打包成 .skillpack，sha256 自验，发给别人即装即用。</p>
+          </div>
+          <div class="step">
+            <div class="s-num">05</div>
+            <h3>创作</h3>
+            <p>自己写技能，AI 协助生成，反向丰富你的技能库。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 功能 bento ===================== -->
+    <section class="section">
+      <div class="container">
+        <div class="sec-head reveal">
+          <div class="idx">WHY</div>
+          <div class="title">
+            <h2 class="h2">为什么是本地优先</h2>
+            <p>技能是你的资产。它们不该被锁在某个云端账号，也不该离开你的电脑。</p>
+          </div>
+        </div>
+
+        <div class="bento reveal">
+          <div class="cell cell--wide">
+            <span class="tag">中英对照</span>
+            <h3>流式翻译，边出边看</h3>
+            <p>原文进、译文出，进度条实时跟随。大文件自动分块，已翻译的原文靠哈希增量跳过，重复打开不再等。</p>
+          </div>
+          <div class="cell cell--tall">
+            <span class="tag">秒搜</span>
+            <h3><code>Ctrl</code>+<code>K</code> 全局搜索</h3>
+            <p>中文名、原名、描述全字段命中，无论技能来自哪个工具，一次搜到。</p>
+          </div>
+          <div class="cell cell--tall">
+            <span class="tag">安全分发</span>
+            <h3><code>.skillpack</code> 自验</h3>
+            <p>版本闸拒绝不兼容的包，sha256 逐文件校验，导入不覆盖已有——分享放心，安装安心。</p>
+          </div>
+          <div class="cell cell--wide">
+            <span class="tag">隐私</span>
+            <h3>数据不离开你的电脑</h3>
+            <p>配置、译文、Packs、导入库统一存放在系统数据目录，重装不丢；LLM 密钥只存本地、脱敏显示。免登录，即装即用。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 数据目录 ===================== -->
+    <section id="data" class="section">
+      <div class="container">
+        <div class="data-grid">
+          <div class="data-copy reveal">
+            <p class="eyebrow">DATA</p>
+            <h2 class="h2" style="margin-bottom:16px">运行时数据，与代码分离</h2>
+            <p>所有个人数据放在系统数据目录，不在应用安装目录里。重装系统或迁移应用，数据都在；首次启动还会自动迁移旧目录并自校验。</p>
+            <p>你随时可以打开这个目录，手动备份或查看——一切透明。</p>
+          </div>
+          <div class="data-panel reveal">
+            <div class="p-head">%AppData%\Skills Shark</div>
+            <div class="p-body">
+              <div><span class="dir">Skills Shark/</span></div>
+              <div>&nbsp;&nbsp;<span class="key">config.json</span> <span class="cmt"># 扫描路径 / LLM 配置</span></div>
+              <div>&nbsp;&nbsp;<span class="key">translations.json</span> <span class="cmt"># 译文索引</span></div>
+              <div>&nbsp;&nbsp;<span class="key">translations/</span> <span class="cmt"># 中英对照译文</span></div>
+              <div>&nbsp;&nbsp;<span class="key">packs/</span> <span class="cmt"># 已创建的 Skill Packs</span></div>
+              <div>&nbsp;&nbsp;<span class="key">imported/</span> <span class="cmt"># 安装进来的技能库</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 技术栈 ===================== -->
+    <section class="section">
+      <div class="container">
+        <div class="sec-head reveal">
+          <div class="idx">STACK</div>
+          <div class="title">
+            <h2 class="h2">够轻，够稳</h2>
+            <p>用 Tauri 而非 Electron——更小的安装包、更低的资源占用、更可控的本地文件访问。</p>
+          </div>
+        </div>
+        <div class="tech reveal">
+          <span class="chip"><b>Tauri 2</b> · Rust</span>
+          <span class="chip"><b>React 19</b> · TypeScript</span>
+          <span class="chip"><b>Vite 8</b></span>
+          <span class="chip"><b>Tailwind v4</b></span>
+          <span class="chip"><b>shadcn/ui</b></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CTA ===================== -->
+    <section id="download" class="section">
+      <div class="container">
+        <div class="cta reveal">
+          <h2 class="h2">让你的技能，真正属于你。</h2>
+          <p>免费下载，免登录，即装即用。Windows x64 安装包，数据全在本地。</p>
+          <div class="hero-actions">
+            <a class="btn btn--invert" href="https://gitee.com/xxxlomg/skills-shark/releases">下载 Windows 版 v0.2.1</a>
+            <a class="btn btn--ghost" href="manual.html">先看看使用手册 <span class="arrow">→</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== 页脚 ===================== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="#top" aria-label="SkillsShark 技能鲨">
+            <img class="brand-img" src="assets/skills-shark.png" alt="SkillsShark 技能鲨" />
+          </a>
+          <p class="desc">本地 AI 技能的管理、翻译与打包工具。一眼看懂，一用就会。</p>
+        </div>
+        <div>
+          <h4>产品</h4>
           <ul>
-            <li>译文与翻译索引统一存放，不侵入任何工具目录</li>
-            <li>Pack、引用台账、草稿各自独立，结构清晰</li>
-            <li>git 货架克隆临时区自动清理</li>
+            <li><a href="#capabilities">功能</a></li>
+            <li><a href="#workflow">工作流</a></li>
+            <li><a href="#download">下载</a></li>
           </ul>
         </div>
-        <div class="secure-panel reveal" data-delay="80">
-          <div class="dir-row">
-            <span class="ic">▸</span><code>config.json</code
-            ><span style="margin-left: auto; color: var(--text-3)"
-              >配置与 Key</span
-            >
-          </div>
-          <div class="dir-row">
-            <span class="ic">▸</span><code>translations/</code
-            ><span style="margin-left: auto; color: var(--text-3)"
-              >全部译文</span
-            >
-          </div>
-          <div class="dir-row">
-            <span class="ic">▸</span><code>packs/ · imported/ · authored/</code
-            ><span style="margin-left: auto; color: var(--text-3)"
-              >Pack / 导入 / 草稿</span
-            >
-          </div>
-          <div class="dir-row">
-            <span class="ic">▸</span><code>links.json</code
-            ><span style="margin-left: auto; color: var(--text-3)"
-              >Hub 引用台账</span
-            >
-          </div>
+        <div>
+          <h4>资源</h4>
+          <ul>
+            <li><a href="manual.html">使用手册</a></li>
+            <li><a href="https://gitee.com/xxxlomg/skills-shark">Gitee</a></li>
+            <li><a href="https://gitee.com/xxxlomg/skills-shark/issues">反馈问题</a></li>
+          </ul>
         </div>
-      </section>
-
-      <!-- 下载 CTA -->
-      <section class="cta">
-        <div class="cta-card reveal">
-          <div>
-            <h2>现在就把技能管起来</h2>
-            <p>免费开源，Windows 10 及以上。装上即用，模型 Key 由你自备。</p>
-            <p class="cta-meta">v0.2.1 · Windows 10+ · NSIS 安装包</p>
-          </div>
-          <div class="cta-actions">
-            <a
-              class="btn btn-primary btn-lg"
-              href="https://gitee.com/xxxlomg/skills-shark/releases"
-              target="_blank"
-              rel="noopener"
-              >下载</a
-            >
-            <a
-              class="btn btn-ghost"
-              href="https://gitee.com/xxxlomg/skills-shark"
-              target="_blank"
-              rel="noopener"
-              >Gitee 仓库</a
-            >
-          </div>
+        <div>
+          <h4>关于</h4>
+          <ul>
+            <li><a href="#top">v0.2.1 · 开发中</a></li>
+            <li><a href="#data">数据隐私</a></li>
+            <li><a href="#top">仅供学习与个人使用</a></li>
+          </ul>
         </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="footer-inner">
-        <span class="footer-brand">
-          <img src="assets/shark-tile.png" alt="" width="18" height="18" />
-          SkillsShark
-        </span>
-        <nav class="footer-links" aria-label="页脚导航">
-          <a href="manual.html">使用手册</a>
-          <a
-            href="https://gitee.com/xxxlomg/skills-shark"
-            target="_blank"
-            rel="noopener"
-            >Gitee</a
-          >
-        </nav>
-        <span class="footer-copy">© 2026 xxxlomg · 本地优先，技能由你掌控</span>
       </div>
-    </footer>
+      <div class="footer-bottom">
+        <span>© 2026 SkillsShark · 技能鲨</span>
+        <span>Local-first · Windows x64</span>
+      </div>
+    </div>
+  </footer>
 
-    <script src="main.js"></script>
-  </body>
+  <script src="main.js"></script>
+</body>
 </html>

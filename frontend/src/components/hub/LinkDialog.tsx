@@ -13,6 +13,7 @@ import {
   Folder,
   FolderOpen,
 } from "lucide-react";
+import { ExpandCollapseAll } from "@/components/common/ExpandCollapseAll";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -185,6 +186,23 @@ export function LinkDialog({ skills, initialSkillId, onClose, onLinked }: LinkDi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSkillId]);
 
+  // ---- 一键展开 / 收起全部（工具 + 合集全量进/出 expanded 集） ----
+  const expandAllTree = useMemo(
+    () => () => {
+      const next = new Set<string>();
+      for (const t of tree) {
+        next.add(`tool:${t.label}`);
+        for (const c of t.colls) next.add(`coll:${t.label}\u241f${c.path}`);
+      }
+      setExpanded(next);
+    },
+    [tree],
+  );
+  const collapseAllTree = useMemo(
+    () => () => setExpanded(new Set()),
+    [],
+  );
+
   const selectedSkill = skills.find((s) => s.id === skillId) ?? null;
   const selectedTool = tools.find((t) => t.id === toolId) ?? null;
   const moveBlocked = selectedSkill?.tool_id === "builtin";
@@ -293,6 +311,13 @@ export function LinkDialog({ skills, initialSkillId, onClose, onLinked }: LinkDi
                   className="pl-8"
                 />
               </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-between px-4 pb-1 pt-0.5">
+              <span className="text-[11px] font-medium text-text-tertiary">技能树</span>
+              <ExpandCollapseAll
+                onExpandAll={expandAllTree}
+                onCollapseAll={collapseAllTree}
+              />
             </div>
             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pb-4">
               {query.trim() ? (

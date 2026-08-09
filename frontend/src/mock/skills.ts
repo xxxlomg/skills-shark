@@ -77,4 +77,7 @@ export const MOCK_SKILLS: Skill[] = [
   mk("a1", "my-draft-skill", "🌱", "草稿期技能：先命名后补描述的创作样本", "Authored", { zh: "我的草稿", tool: "authored" }),
   mk("a2", "code-review-helper", "🔍", "按团队清单审查 diff，输出分级意见", "Authored", { tool: "authored" }),
   mk("a3", "release-note-writer", "📝", "从 commit 历史生成结构化发布说明", "Authored", { tool: "authored" }),
+
+  // imported（D4：导入库技能是正式成员，可看/可搜/可作 Hub 源，但不进打包清单）
+  mk("i1", "notion-exporter", "🗂️", "从 Notion workspace 导出为 Markdown，批量迁移文档", "imported", { zh: "Notion 导出器", trans: true, tool: "imported" }),
 ];

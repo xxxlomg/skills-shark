@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   isMockMode,
   MOCK_PACKS,
+  MOCK_INSTALLS,
   MOCK_RAW,
   MOCK_TOOLS,
   MOCK_LINKS,
@@ -541,9 +542,61 @@ export function packImport(path: string): Promise<PackInfo> {
   return invoke<PackInfo>("pack_import", { path });
 }
 
-/** 安装到 imported 库；返回安装的技能数 */
-export function packInstall(id: string): Promise<number> {
-  return invoke<number>("pack_install", { id });
+/** 新建【全新】文件夹位置：创建目录并注册为自定义根，返回工具 id。 */
+export function addFolderRoot(path: string): Promise<string> {
+  if (isMockMode()) {
+    const clean = path.trim();
+    if (!clean) return Promise.reject(new Error("路径为空"));
+    return Promise.resolve(`custom-${clean.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`);
+  }
+  return invoke<string>("add_folder_root", { path });
+}
+
+/** 安装部署预览结果（D6：deploy_root = <target>/skills） */
+export interface InstallPreview {
+  deploy_root: string;
+  skill_folders: string[];
+  conflicts: string[];
+  is_new_tool: boolean;
+}
+
+/** 安装预览：解析 pack + 冲突清单，不落盘（D2/D6） */
+export function packInstallPreview(id: string, targetDir: string): Promise<InstallPreview> {
+  if (isMockMode()) {
+    const pack = MOCK_PACKS.find((p) => p.id === id);
+    if (!pack) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    const deploy_root = `${targetDir.replace(/[\\/]+$/, "")}/skills`;
+    const fold = (Array.isArray(pack.skill_names) ? pack.skill_names : []);
+    const existing = MOCK_INSTALLS.get(deploy_root) ?? [];
+    return Promise.resolve({
+      deploy_root,
+      skill_folders: fold,
+      conflicts: fold.filter((f) => existing.includes(f)),
+      is_new_tool: !existing.length,
+    });
+  }
+  return invoke<InstallPreview>("pack_install_preview", { id, targetDir });
+}
+
+/** 安装提交：overwrite = 用户确认覆盖的同名 folder；其余冲突跳过。 */
+export function packInstallCommit(
+  id: string,
+  targetDir: string,
+  overwrite: string[]
+): Promise<number> {
+  if (isMockMode()) {
+    const pack = MOCK_PACKS.find((p) => p.id === id);
+    if (!pack) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    const deploy_root = `${targetDir.replace(/[\\/]+$/, "")}/skills`;
+    const fold = (Array.isArray(pack.skill_names) ? pack.skill_names : []);
+    const existing = MOCK_INSTALLS.get(deploy_root) ?? [];
+    const deployable = fold.filter(
+      (f) => !existing.includes(f) || overwrite.includes(f)
+    );
+    MOCK_INSTALLS.set(deploy_root, Array.from(new Set([...existing, ...deployable])));
+    return Promise.resolve(deployable.length);
+  }
+  return invoke<number>("pack_install_commit", { id, targetDir, overwrite });
 }
 
 export function packDelete(id: string): Promise<void> {

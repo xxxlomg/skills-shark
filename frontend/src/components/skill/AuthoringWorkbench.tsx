@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CircleHelp,
+  Code2,
   Columns2,
+  Copy,
   Eye,
   FolderTree,
   Loader2,
+  Maximize2,
+  Minimize2,
   PanelLeft,
   PenLine,
   Save,
@@ -85,6 +89,8 @@ import {
 interface AuthoringWorkbenchProps {
   skill: Skill | null; // null = 新建态
   skills: Skill[]; // 内容参考候选（全局扫描结果，按 scan_label 分组）
+  /** 新建态落点预选（从技能库「在当前目录下创作」进入时带上工具名/ID） */
+  initialLocation?: string | null;
   refresh: () => void;
   onOpenSettings: () => void;
   onExit: () => void;
@@ -202,6 +208,7 @@ const GUIDELINES = (
 export function AuthoringWorkbench({
   skill,
   skills,
+  initialLocation,
   refresh,
   onOpenSettings,
   onExit,
@@ -221,6 +228,17 @@ export function AuthoringWorkbench({
   const [confirmExit, setConfirmExit] = useState(false);
   const [refSkillId, setRefSkillId] = useState("");
   const [refContent, setRefContent] = useState("");
+  // 参考 pane：渲染/源码 视图切换 + 全屏预览（用户可全屏看、可复制 md 原文）
+  const [refView, setRefView] = useState<"render" | "raw">("render");
+  const [refFull, setRefFull] = useState(false);
+  // 中间编辑区可收起：收起后仅留左「我的描述」+ 右参考 pane
+  const [editorOpen, setEditorOpen] = useState(true);
+  // 编辑区全屏：覆盖层顶部保留完整工具栏（正文/附带资源 + 编辑/分栏/预览 + 还原）
+  const [editorFull, setEditorFull] = useState(false);
+  // 参考全屏视图：渲染 / 源码 / 分栏（渲染+源码左右并列）
+  const [refFullView, setRefFullView] = useState<"render" | "raw" | "split">(
+    "render",
+  );
   // X4：AI 创作（顶栏按钮 + Dialog + 右侧流式预览）
   const [aiOpen, setAiOpen] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
@@ -293,6 +311,24 @@ export function AuthoringWorkbench({
       .then((ts) => setTools(ts.filter((t) => !t.app_owned && t.enabled)))
       .catch(() => setTools([]));
   }, [current]);
+
+  // 落点预选：从技能库「在当前目录下创作」进入时，把 location 预选为对应工具。
+  // scan_label / tool_id 与 ToolInfo 的 id/name 可能不一致（如 claude ↔ claude-code），
+  // 故先精确匹配，再退化为归一化前缀匹配。
+  useEffect(() => {
+    if (current || !initialLocation) return;
+    const norm = (s: string) => s.toLowerCase().replace(/[\s_\-/\\]/g, "");
+    const n = norm(initialLocation);
+    if (!n) return;
+    const t =
+      tools.find((x) => x.id === initialLocation || x.name === initialLocation) ??
+      tools.find((x) => {
+        const a = norm(x.id);
+        const b = norm(x.name);
+        return a === n || b === n || a.startsWith(n) || b.startsWith(n);
+      });
+    if (t) setLocation(t.id);
+  }, [tools, initialLocation, current]);
 
   // 内容参考分组（全局 skills 按 scan_label）
   const refGroups = useMemo(() => {
@@ -555,11 +591,104 @@ export function AuthoringWorkbench({
     [draft.body],
   );
 
+  // 编辑区工具条（normal / fullscreen 共用；full 时把「全屏」换成「还原」）
+  const renderToolbar = (full: boolean) => (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-1">
+      <Button
+        variant={rightTab === "body" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 px-2.5 text-xs"
+        onClick={() => setRightTab("body")}
+      >
+        正文
+      </Button>
+      <Button
+        variant={rightTab === "files" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 px-2.5 text-xs"
+        onClick={() => setRightTab("files")}
+      >
+        <FolderTree className="h-3 w-3" />
+        附带资源
+      </Button>
+      {rightTab === "body" && (
+        <div className="ml-2 flex flex-wrap items-center gap-1 border-l border-border/40 pl-2">
+          <Button
+            variant={preview === "edit" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("edit")}
+          >
+            编辑
+          </Button>
+          <Button
+            variant={preview === "split" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("split")}
+          >
+            <Columns2 className="h-3 w-3" />
+            分栏
+          </Button>
+          <Button
+            variant={preview === "preview" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("preview")}
+          >
+            <Eye className="h-3 w-3" />
+            预览
+          </Button>
+        </div>
+      )}
+      <div className="flex-1" />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2.5 text-xs"
+        title={full ? "还原编辑区" : "全屏编辑区"}
+        onClick={() => setEditorFull((o) => !o)}
+      >
+        {full ? (
+          <Minimize2 className="h-3 w-3" />
+        ) : (
+          <Maximize2 className="h-3 w-3" />
+        )}
+        {full ? "还原" : "全屏"}
+      </Button>
+    </div>
+  );
+
+  // 编辑区内容（正文/附带资源），与工具条解耦，供普通态与全屏复用
+  const editorBody =
+    rightTab === "files" ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <FileTree skill={current} />
+      </div>
+    ) : (
+      <div
+        className={
+          preview === "split"
+            ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
+            : "flex min-h-0 flex-1 flex-col"
+        }
+      >
+        {preview !== "preview" && (
+          <textarea
+            value={draft.body}
+            onChange={(e) => patch({ body: e.target.value })}
+            className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
+          />
+        )}
+        {preview !== "edit" && previewPane}
+      </div>
+    );
+
   return (
     // R3-2：整页 h-dvh 列布局，页面不滚；pt-4(16)+顶栏 h-12(48)=64 → 抽屉 top-16 对齐
     <div className="flex h-dvh flex-col gap-3 py-4">
       {/* X1 顶栏：整页不滚后恒可见（保留 sticky 无害） */}
-      <div className="sticky top-0 z-40 flex h-12 shrink-0 items-center gap-3 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 py-1.5 backdrop-blur-xl">
         <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回创作列表
@@ -574,6 +703,17 @@ export function AuthoringWorkbench({
         >
           <PanelLeft className="h-3.5 w-3.5" />
           我的描述
+        </Button>
+        {/* 中间编辑区收起/展开：收起后仅留描述 + 参考 */}
+        <Button
+          size="sm"
+          variant={editorOpen ? "secondary" : "ghost"}
+          aria-pressed={editorOpen}
+          title={editorOpen ? "收起编辑区（仅看描述与参考）" : "展开编辑区"}
+          onClick={() => setEditorOpen((o) => !o)}
+        >
+          <Columns2 className="h-3.5 w-3.5" />
+          编辑区
         </Button>
         <div className="h-4 w-px bg-border/60" />
         {/* X5 emoji 控件 */}
@@ -747,104 +887,94 @@ export function AuthoringWorkbench({
           descOpen && "pl-[416px]",
         )}
       >
-        {/* 编辑列（不再被参考/流式替换） */}
+        {/* 编辑列（不再被参考/流式替换；可整体收起） */}
+        {editorOpen && (
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3">
-          {/* 工具条 tabs */}
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant={rightTab === "body" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setRightTab("body")}
-            >
-              正文
-            </Button>
-            <Button
-              variant={rightTab === "files" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setRightTab("files")}
-            >
-              <FolderTree className="h-3 w-3" />
-              附带资源
-            </Button>
-            {rightTab === "body" && (
-              <div className="ml-2 flex items-center gap-1 border-l border-border/40 pl-2">
-                <Button
-                  variant={preview === "edit" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setPreview("edit")}
-                >
-                  编辑
-                </Button>
-                <Button
-                  variant={preview === "split" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setPreview("split")}
-                >
-                  <Columns2 className="h-3 w-3" />
-                  分栏
-                </Button>
-                <Button
-                  variant={preview === "preview" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setPreview("preview")}
-                >
-                  <Eye className="h-3 w-3" />
-                  预览
-                </Button>
-              </div>
-            )}
-          </div>
-          {rightTab === "files" ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <FileTree skill={current} />
-            </div>
-          ) : (
-            <div
-              className={
-                preview === "split"
-                  ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
-                  : "flex min-h-0 flex-1 flex-col"
-              }
-            >
-              {preview !== "preview" && (
-                <textarea
-                  value={draft.body}
-                  onChange={(e) => patch({ body: e.target.value })}
-                  className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
-                />
-              )}
-              {preview !== "edit" && previewPane}
-            </div>
-          )}
+          {renderToolbar(false)}
+          {editorBody}
         </div>
+        )}
 
         {/* 右侧辅助 pane（R3-3 并列不挤压；R3-2 内部滚动，页面不滚） */}
         {(refSkillId || streaming || streamDone) && (
-          <aside className="flex h-full min-h-0 w-[42%] max-w-[620px] shrink-0 flex-col gap-3">
+          <aside
+            className={cn(
+              "flex h-full min-h-0 shrink-0 flex-col gap-3",
+              editorOpen ? "w-[42%] max-w-[620px]" : "min-w-0 flex-1",
+            )}
+          >
             {refSkillId ? (
-              <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
-                <ScrollText className="h-3.5 w-3.5 text-primary" />
-                <span className="truncate">
-                  内容参考 · {refName} · 只读，不进草稿
-                </span>
-                <div className="flex-1" />
+              // 参考头部：窄栏空间有限 → 动作全部收成纯图标按钮（悬停提示），
+              // 单行排布不换行，「关闭」不再被挤到第二行。
+              <div className="flex shrink-0 items-center gap-1 rounded-md border border-border/40 bg-glass-1 px-2 py-1.5 text-xs text-text-secondary">
+                <ScrollText className="h-3.5 w-3.5 shrink-0 text-primary" />
+                {/* 参考说明：圆圈问号悬停展示 tag */}
+                <Tip
+                  side="bottom"
+                  label={`内容参考 · ${refName} · 只读，不进草稿`}
+                >
+                  <button
+                    type="button"
+                    aria-label="参考说明"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-text-tertiary transition-colors hover:bg-glass-2 hover:text-text-primary"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
+                <div className="min-w-0 flex-1" />
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title="全屏预览参考"
+                  aria-label="全屏预览参考"
+                  onClick={() => setRefFull(true)}
+                >
+                  <Maximize2 className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title={refView === "render" ? "查看 md 源码" : "查看渲染"}
+                  aria-label={refView === "render" ? "查看源码" : "查看渲染"}
+                  onClick={() =>
+                    setRefView((v) => (v === "render" ? "raw" : "render"))
+                  }
+                >
+                  {refView === "render" ? (
+                    <Code2 className="h-3 w-3" />
+                  ) : (
+                    <Eye className="h-3 w-3" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title="复制 md 原文（方便抄表格等写法）"
+                  aria-label="复制参考源码"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText(refContent)
+                      .then(() => toast.success("已复制参考源码"));
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0 hover:text-destructive"
+                  title="关闭参考"
+                  aria-label="关闭参考"
                   onClick={() => setRefSkillId("")}
                 >
                   <X className="h-3 w-3" />
-                  关闭参考
                 </Button>
               </div>
             ) : (
-              <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 gap-y-1 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
                 <span>
                   {streaming
@@ -882,13 +1012,19 @@ export function AuthoringWorkbench({
               ref={previewScrollRef}
               className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-4"
             >
-              <MarkdownPreview
-                content={
-                  refSkillId
-                    ? refContent || "（读取中…）"
-                    : stream + (streaming ? "\n▍" : "")
-                }
-              />
+              {refSkillId && refView === "raw" ? (
+                <pre className="whitespace-pre-wrap font-mono text-[12px] leading-[1.7] text-text-secondary">
+                  {refContent || "（读取中…）"}
+                </pre>
+              ) : (
+                <MarkdownPreview
+                  content={
+                    refSkillId
+                      ? refContent || "（读取中…）"
+                      : stream + (streaming ? "\n▍" : "")
+                  }
+                />
+              )}
             </div>
           </aside>
         )}
@@ -979,7 +1115,7 @@ export function AuthoringWorkbench({
                 </p>
                 <div className="mt-2">
                   <Select
-                    value={refSkillId === "" ? undefined : refSkillId}
+                    value={refSkillId}
                     onValueChange={(v) => {
                       setRefSkillId(v);
                       setStream("");
@@ -1008,6 +1144,114 @@ export function AuthoringWorkbench({
             </div>
           </SheetContent>
         </Sheet>
+      )}
+
+      {/* 编辑区全屏：覆盖层顶部保留完整工具栏（正文/附带资源 + 编辑/分栏/预览 + 还原） */}
+      {editorFull && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-0)] p-4">
+          <div className="mb-3 shrink-0 rounded-md border border-border/40 bg-glass-1 px-2 py-1.5">
+            {renderToolbar(true)}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">{editorBody}</div>
+        </div>
+      )}
+
+      {/* 参考全屏预览：fixed 覆盖层，独立于主行布局——可全屏看、可切源码、可复制 */}
+      {refFull && refSkillId && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-0)] p-4">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2 gap-y-1 rounded-md border border-border/40 bg-glass-1 px-3 py-2 text-xs text-text-secondary">
+            <ScrollText className="h-3.5 w-3.5 text-primary" />
+            <Tip side="bottom" label={`内容参考 · ${refName} · 全屏预览`}>
+              <button
+                type="button"
+                aria-label="参考说明"
+                className="grid h-5 w-5 place-items-center rounded-full text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+              </button>
+            </Tip>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFull(false)}
+            >
+              <Minimize2 className="h-3 w-3" />
+              还原
+            </Button>
+            <Button
+              variant={refFullView === "raw" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("raw")}
+            >
+              <Code2 className="h-3 w-3" />
+              源码
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                void navigator.clipboard
+                  ?.writeText(refContent)
+                  .then(() => toast.success("已复制参考源码"));
+              }}
+            >
+              <Copy className="h-3 w-3" />
+              复制
+            </Button>
+            <Button
+              variant={refFullView === "split" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("split")}
+            >
+              <Columns2 className="h-3 w-3" />
+              分栏
+            </Button>
+            <Button
+              variant={refFullView === "render" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("render")}
+            >
+              <Eye className="h-3 w-3" />
+              预览
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                setRefFull(false);
+                setRefSkillId("");
+              }}
+            >
+              <X className="h-3 w-3" />
+              关闭参考
+            </Button>
+          </div>
+          {refFullView === "split" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-4">
+              <div className="min-h-0 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-6">
+                <MarkdownPreview content={refContent || "（读取中…）"} />
+              </div>
+              <pre className="min-h-0 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/40 bg-glass-1 p-6 font-mono text-[13px] leading-[1.7] text-text-secondary">
+                {refContent || "（读取中…）"}
+              </pre>
+            </div>
+          ) : refFullView === "raw" ? (
+            <pre className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/40 bg-glass-1 p-6 font-mono text-[13px] leading-[1.7] text-text-secondary">
+              {refContent || "（读取中…）"}
+            </pre>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-6">
+              <MarkdownPreview content={refContent || "（读取中…）"} />
+            </div>
+          )}
+        </div>
       )}
 
       {/* X4 AI 创作 Dialog */}

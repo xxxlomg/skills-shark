@@ -10,6 +10,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { StatBar } from "@/components/layout/StatBar";
 import { TabNav } from "@/components/layout/TabNav";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { NewFolderDialog } from "@/components/layout/NewFolderDialog";
 import { DEFAULT_VIEW, type ViewId } from "@/lib/view-registry";
 import { HubView } from "@/components/hub/HubView";
 import { LinkDialog } from "@/components/hub/LinkDialog";
@@ -32,7 +33,6 @@ import { RepoBrowseDialog } from "@/components/skill/RepoBrowseDialog";
 import {
   packDelete,
   packExport,
-  packInstall,
   packRename,
   packsList,
   gitStatus,
@@ -42,6 +42,7 @@ import {
   type PackInfo,
   type RepoImportResult,
 } from "@/lib/api";
+import { InstallDialog } from "@/components/skill/InstallDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import {
   Dialog,
@@ -53,7 +54,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useSkills, collectionDisplayName, type Skill, type LayoutMode } from "@/hooks/useSkills";
+import { useSkills, collectionRelativeName, type Skill, type LayoutMode } from "@/hooks/useSkills";
+import { useCreatedFolders } from "@/hooks/useCreatedFolders";
 
 declare global {
   interface Window {
@@ -83,6 +85,7 @@ function readNavMode(): NavMode {
 
 function App() {
   const { skills, groups, loading, error, sync, refresh } = useSkills();
+  const { folders, addFolder } = useCreatedFolders();
 
   const [tab, setTab] = useState<ViewId>(DEFAULT_VIEW);
   const [view, setView] = useState<View>({ type: "home" });
@@ -134,6 +137,15 @@ function App() {
     setView({ type: "home" });
   }, []);
 
+  // 层级返回：在合集内 → 回工具级；已在工具级 → 回技能库
+  const handleBackLevel = useCallback(() => {
+    setView((v) =>
+      v.type === "category" && v.collection
+        ? { type: "category", label: v.label }
+        : { type: "home" },
+    );
+  }, []);
+
   const handleSkillClick = useCallback((skill: Skill) => {
     setSelectedSkill(skill);
     setModalOpen(true);
@@ -155,13 +167,21 @@ function App() {
   // Skill Packs（PLAN-05 P1：真实数据）
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [packDialogOpen, setPackDialogOpen] = useState(false);
+  // 技能库页头（HomeView/CategoryView）左上角「新建文件夹」按钮 → App 级弹窗。
+  // parentLabel 由当前视图推导：home→null（全新路径模式）；分类→当前工具/合集。
+  const [libFolderDialogOpen, setLibFolderDialogOpen] = useState(false);
   // PLAN-07：工作台沉浸态 → 隐藏 StatBar/TabNav；工作台状态提升到 App（避免侧栏布局壳
   // 切换导致 CreationView 卸载重挂、丢失工作台状态）
   const [wbActive, setWbActive] = useState(false);
   const [wbSkill, setWbSkill] = useState<Skill | null>(null);
+  // 新建态落点预选（从技能库「在当前目录下创作」进入时带上工具名）
+  const [wbInitialLocation, setWbInitialLocation] = useState<string | null>(
+    null,
+  );
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PackInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [installTarget, setInstallTarget] = useState<PackInfo | null>(null);
   const [renameTarget, setRenameTarget] = useState<PackInfo | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -217,11 +237,20 @@ function App() {
     setUrlDialogOpen(true);
   }, []);
 
-  // PLAN-07 W1：新建技能统一进创作工作台（退役 NewSkillDialog）。
-  // 直接打开空工作台（状态在 App 层，信号机制退役）
-  const handleNewSkill = useCallback(() => {
+  // 技能库「在当前目录下创作」：新建态 + 落点预选为当前选中工具
+  const handleCreateIn = useCallback((target: string | null) => {
     setTab("create");
     setWbSkill(null);
+    setWbInitialLocation(target);
+    setWbActive(true);
+  }, []);
+
+  // 编辑存量技能：关闭详情，打开工作台编辑态
+  const handleEditSkill = useCallback((skill: Skill) => {
+    setModalOpen(false);
+    setTab("create");
+    setWbInitialLocation(null);
+    setWbSkill(skill);
     setWbActive(true);
   }, []);
 
@@ -315,15 +344,7 @@ function App() {
   const handlePackAction = useCallback(
     async (action: PackAction, pack: PackInfo) => {
       if (action === "install") {
-        try {
-          const n = await packInstall(pack.id);
-          toast.success(`已安装 ${n} 个技能到「${pack.name}」库`);
-          await refresh();
-          setTab("lib");
-          setView({ type: "home" });
-        } catch (e) {
-          toast.error(`安装失败：${String(e)}`);
-        }
+        setInstallTarget(pack);
         return;
       }
       if (action === "export") {
@@ -434,8 +455,8 @@ function App() {
   );
 
   const translatedCount = useMemo(
-    () => skills.filter((s) => s.has_translation).length,
-    [skills]
+    () => groups.reduce((sum, g) => sum + g.skills.filter((s) => s.has_translation).length, 0),
+    [groups]
   );
 
   const lostCount = useMemo(
@@ -536,23 +557,28 @@ function App() {
           onSkillClick={handleSkillClick}
           onGitImport={handleGitImport}
           onZipImport={handleZipImport}
-          onNewSkill={handleNewSkill}
+          onNewFolder={() => setLibFolderDialogOpen(true)}
+          extraFolderLabels={folders
+            .filter((f) => f.collection === null)
+            .map((f) => f.label)}
         />
-      ) : currentGroup ? (
+      ) : (
+        // 空文件夹（新建后 0 技能、扫描 groups 里不存在）也要进 CategoryView：
+        // 保留返回 / 标题 / 创作 / 布局切换头部，skills 兜底空数组。
         <CategoryView
           key={`${view.label}:${view.collection ?? ""}`}
           label={view.label}
-          skills={currentGroup.skills}
+          skills={currentGroup?.skills ?? []}
           collection={view.collection ?? null}
           layout={layout}
           onLayoutChange={handleLayoutChange}
-          onBack={handleBack}
+          onBack={handleBackLevel}
           onSkillClick={handleSkillClick}
+          onOpenCollection={handleOpenCollection}
+          onCreateIn={handleCreateIn}
           onSettingsOpen={() => setSettingsOpen(true)}
           onTranslateDone={handleSync}
         />
-      ) : (
-        <EmptyState />
       )}
     </div>
   );
@@ -586,7 +612,7 @@ function App() {
                 onClick={() => handleOpenCollection(view.label, view.collection)}
                 className="truncate transition-colors hover:text-text-primary"
               >
-                {collectionDisplayName(view.collection)}
+                {collectionRelativeName(view.label, view.collection)}
               </button>
             </>
           )}
@@ -604,9 +630,10 @@ function App() {
         <main className="flex-1">
           <div className="mx-auto w-full px-[26px]">
             <AuthoringWorkbench
-              key={wbSkill?.id ?? "new"}
+              key={`${wbSkill?.id ?? "new"}:${wbInitialLocation ?? ""}`}
               skill={wbSkill}
               skills={skills}
+              initialLocation={wbInitialLocation}
               refresh={refresh}
               onOpenSettings={() => setSettingsOpen(true)}
               onExit={closeWorkbench}
@@ -645,6 +672,7 @@ function App() {
             selectedSkillId={liveSelectedSkill?.id ?? null}
             onOpenCollection={handleOpenCollection}
             onOpenSkill={handleSkillClick}
+            emptyFolders={folders}
             syncing={syncing}
             onSync={handleSync}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -701,6 +729,7 @@ function App() {
         onTranslateDone={handleSync}
         onLinkSkill={(s) => openLinkDialog(s.id)}
         onEdited={refresh}
+        onEdit={handleEditSkill}
       />
 
       {linkDialogOpen && (
@@ -711,6 +740,15 @@ function App() {
           onLinked={handleLinked}
         />
       )}
+
+      <NewFolderDialog
+        open={libFolderDialogOpen}
+        onClose={() => setLibFolderDialogOpen(false)}
+        onCreated={(label) => {
+          addFolder(label, null);
+          refresh();
+        }}
+      />
 
       {urlDialogOpen && (
         <UrlImportDialog
@@ -756,6 +794,29 @@ function App() {
         variant="destructive"
         loading={deleting}
         onConfirm={handleConfirmDelete}
+      />
+
+      <InstallDialog
+        open={!!installTarget}
+        onOpenChange={(o) => !o && setInstallTarget(null)}
+        pack={
+          installTarget ?? {
+            id: "",
+            name: "",
+            ver: "",
+            author: "",
+            created_at: "",
+            skill_count: 0,
+            translated: 0,
+            overview: "",
+            summary_source: "static",
+            skill_names: [],
+          }
+        }
+        onInstalled={async () => {
+          setInstallTarget(null);
+          await refresh();
+        }}
       />
 
       <Dialog

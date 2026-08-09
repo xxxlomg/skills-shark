@@ -80,6 +80,22 @@ export function collectionDisplayName(collection: string): string {
   return meaningful ?? segments[segments.length - 1];
 }
 
+/**
+ * 合集相对当前工具的显示名：已在某工具内时，去掉「工具/」前缀，
+ * 让子文件夹卡与面包屑显示真正的子级名（Claude/testing → testing）。
+ */
+export function collectionRelativeName(
+  label: string,
+  collection: string,
+): string {
+  const pref = label + "/";
+  if (collection.startsWith(pref)) {
+    const rest = collection.slice(pref.length).trim();
+    if (rest) return rest;
+  }
+  return collectionDisplayName(collection);
+}
+
 export function useSkills() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);

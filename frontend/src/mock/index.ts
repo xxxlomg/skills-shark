@@ -16,7 +16,7 @@
  */
 export { isMockMode } from "./mode";
 export { MOCK_SKILLS } from "./skills";
-export { MOCK_PACKS } from "./packs";
+export { MOCK_PACKS, MOCK_INSTALLS } from "./packs";
 export { MOCK_TOOLS } from "./tools";
 export { MOCK_LINKS } from "./links";
 export { MOCK_RAW, MOCK_TRANS, MOCK_BILINGUAL } from "./translations";

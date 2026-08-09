@@ -200,11 +200,23 @@ fn extract_emoji(text: &str) -> Option<String> {
 
 const MAX_SCAN_DEPTH: usize = 3;
 
+/// 归一化绝对路径（best-effort canonicalize，失败回退原路径）。
+/// 用于 disjoint：扫描根与遍历节点统一到同一形式再比较。
+fn norm_abs(p: &Path) -> std::path::PathBuf {
+    fs::canonicalize(p).unwrap_or_else(|_| {
+        // Windows 下统一斜杠，避免大小写/尾斜杠差异
+        let s = p.to_string_lossy().replace('\\', "/");
+        std::path::PathBuf::from(s.trim_end_matches('/'))
+    })
+}
+
 /// 递归扫描目录，收集含 SKILL.md 的子目录。
 ///
 /// - `depth` 从 1 开始（base 的直接子目录 = depth 1）。
 /// - `collection` 表示「当前 dir 作为合集容器时的中间路径」。
 ///   base 调用时为 None；进入一个无 SKILL.md 的子目录后，该子目录名成为合集名。
+/// - `skip_roots` = 全局扫描根本集合（disjoint, D7）。当某个合集容器本身就是
+///   另一条扫描根时，祖先根不再下钻（该子树由内根独立扫描），避免双身份。
 fn scan_dir_recursive(
     dir: &Path,
     depth: usize,
@@ -213,6 +225,7 @@ fn scan_dir_recursive(
     tool_id: &str,
     collection: Option<String>,
     translation_meta: &HashMap<String, translations::TranslationMeta>,
+    skip_roots: &std::collections::HashSet<std::path::PathBuf>,
     skills: &mut Vec<Skill>,
     seen_ids: &mut std::collections::HashSet<String>,
     rekeys: &mut Vec<(String, String)>,
@@ -255,7 +268,12 @@ fn scan_dir_recursive(
                 rekeys,
             );
         } else {
-            // 无 SKILL.md → 该目录是合集容器，递归下一层
+            // 无 SKILL.md → 该目录是合集容器，递归下一层。
+            // disjoint(D7)：若该容器本身是另一条扫描根，则祖先根不再下钻，
+            // 该子树由内根独立扫描（避免双身份）。
+            if skip_roots.contains(&norm_abs(&child)) {
+                continue;
+            }
             let next_collection = match &collection {
                 None => Some(folder_name),
                 Some(c) => Some(format!("{}/{}", c, folder_name)),
@@ -268,6 +286,7 @@ fn scan_dir_recursive(
                 tool_id,
                 next_collection,
                 translation_meta,
+                skip_roots,
                 skills,
                 seen_ids,
                 rekeys,
@@ -565,6 +584,45 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// D7 disjoint：嵌套扫描根不双身份。祖先根遍历到嵌套根边界停止下钻，
+    /// 内根独立扫描 → 内容只归最内层根，归属 = 用户选定的最内层模块。
+    #[test]
+    fn nested_scan_roots_are_disjoint() {
+        let root = tmp_root("disjoint");
+        let outer = root.join("skills"); // 工具 b
+        let inner = outer.join("c").join("skills"); // 工具 c（嵌套于 outer 下）
+        make_skill(&outer, "outer-only");
+        let inner_skill = inner.join("some-skill");
+        fs::create_dir_all(&inner_skill).unwrap();
+        fs::write(
+            inner_skill.join("SKILL.md"),
+            "---\nname: some-skill\ndescription: nested\n---\nb",
+        )
+        .unwrap();
+
+        let skills = live(scan_all_skills(&[
+            target(&outer, "b", "B"),
+            target(&inner, "c", "C"),
+        ]));
+        // outer-only 归 b；some-skill 只归最内层 c，不产生 b|c/skills/some-skill
+        assert!(skills.iter().any(|s| s.id == "b|outer-only"));
+        assert!(
+            skills.iter().any(|s| s.id == "c|some-skill"),
+            "内根独立产出 some-skill: {:?}",
+            skills.iter().map(|s| &s.id).collect::<Vec<_>>()
+        );
+        assert!(
+            !skills.iter().any(|s| s.id == "b|c/skills/some-skill"),
+            "祖先根不得下钻进嵌套根: {:?}",
+            skills.iter().map(|s| &s.id).collect::<Vec<_>>()
+        );
+        // some-skill 归属最内层 c，parent_collection 为空
+        let inner_skill_rec = skills.iter().find(|s| s.id == "c|some-skill").unwrap();
+        assert_eq!(inner_skill_rec.parent_collection, None);
+        assert!(inner_skill_rec.is_representative);
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn hub_linked_junction_detected_and_repped() {
         let root = tmp_root("junction");
@@ -726,6 +784,13 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut rekeys: Vec<(String, String)> = Vec::new();
 
+    // disjoint 扫描根集合：所有扫描根（跨工具）的归一化绝对路径。
+    // 祖先根遍历到某条嵌套根边界时停止下钻（scan_dir_recursive 内跳过）。
+    let skip_roots: std::collections::HashSet<std::path::PathBuf> = targets
+        .iter()
+        .map(|t| norm_abs(Path::new(&t.path)))
+        .collect();
+
     for t in targets {
         let base = Path::new(&t.path);
         if !base.is_dir() {
@@ -741,6 +806,7 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
             &t.tool_id,
             None,
             &translation_meta,
+            &skip_roots,
             &mut skills,
             &mut seen_ids,
             &mut rekeys,

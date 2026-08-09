@@ -466,6 +466,34 @@ fn push_path_if_new(paths: &mut Vec<String>, candidate: &str) {
     paths.push(c.to_string());
 }
 
+/// 某路径是否已被任一工具注册为扫描路径（按展开后语义比较；展开失败按原文比较）。
+/// 返回占用该路径的工具名。文件路径是扫描根的唯一判定标准（D7：扫描根互不相交）。
+/// `exclude_id`：排除某工具自身（更新自己 paths 时不应把自己算作冲突）。
+pub fn path_taken_by(tools: &[ToolEntry], path: &str, exclude_id: Option<&str>) -> Option<String> {
+    let c = path.trim();
+    if c.is_empty() {
+        return None;
+    }
+    let c_norm = expand_path(c).map(|p| norm_for_compare(&p));
+    for t in tools {
+        if Some(t.id.as_str()) == exclude_id {
+            continue;
+        }
+        for cand in t.paths.iter() {
+            let e_norm = expand_path(cand).map(|p| norm_for_compare(&p));
+            let hit = match (&c_norm, &e_norm) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => c == cand.trim(),
+                _ => false,
+            };
+            if hit {
+                return Some(t.name.clone());
+            }
+        }
+    }
+    None
+}
+
 /// 新鲜安装默认：builtin 自有源 + 全量注册表（enabled；扫描时过滤不存在的目录）
 pub fn default_tools() -> Vec<ToolEntry> {
     let mut tools = vec![app_owned_tool(TOOL_ID_BUILTIN, "builtin")];
@@ -541,10 +569,16 @@ pub fn add_tool(
     if tools.iter().any(|t| t.name == name) {
         return Err(format!("已存在同名工具：{}", name));
     }
+    let cleaned = validate_tool_paths(paths)?;
+    for p in &cleaned {
+        if let Some(owner) = path_taken_by(tools, p, None) {
+            return Err(format!("扫描路径已被「{}」占用：{}", owner, p));
+        }
+    }
     let entry = ToolEntry {
         id: custom_tool_id(tools, name),
         name: name.to_string(),
-        paths: validate_tool_paths(paths)?,
+        paths: cleaned,
         builtin: false,
         enabled: true,
         linkable: true,
@@ -581,7 +615,13 @@ pub fn update_tool(
     }
     if let Some(p) = paths {
         if !tools[pos].app_owned {
-            tools[pos].paths = validate_tool_paths(p)?;
+            let cleaned = validate_tool_paths(p)?;
+            for cand in &cleaned {
+                if let Some(owner) = path_taken_by(tools, cand, Some(&id)) {
+                    return Err(format!("扫描路径已被「{}」占用：{}", owner, cand));
+                }
+            }
+            tools[pos].paths = cleaned;
         }
     }
     if let Some(e) = enabled {
@@ -805,6 +845,42 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
     let path = config_path();
     let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// D8：若 deploy_root 已等于某个 enabled 工具的扫描根，返回 (tool_id, label)。
+/// 命中 → 归属该工具模块（扩现有根），不新建根。例：装到 ~/.codex/skills → codex。
+pub fn find_tool_for_scan_path(deploy_root: &std::path::Path) -> Option<(String, String)> {
+    let cfg = load_config();
+    let norm = norm_for_compare(deploy_root);
+    for t in scan_targets_from_tools(&cfg.tools) {
+        if norm_for_compare(std::path::Path::new(&t.path)) == norm {
+            return Some((t.tool_id.clone(), t.label.clone()));
+        }
+    }
+    None
+}
+
+/// D7：为 deploy_root 新建自定义工具并持久化（auto-name 去重，从父目录名派生）。
+/// 返回 (tool_id, name)。仅在 install 提交阶段调用（preview 不写配置）。
+pub fn add_scan_root_tool(deploy_root: &std::path::Path) -> Result<(String, String), String> {
+    let mut cfg = load_config();
+    // 工具名 = 选定安装目录的末段（模块名）；skills 目录的父目录即选定目录
+    let name0 = deploy_root
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "skills".to_string());
+    let mut name = name0.clone();
+    let mut k = 2;
+    while cfg.tools.iter().any(|t| t.name == name) {
+        name = format!("{}-{}", name0, k);
+        k += 1;
+    }
+    let paths = vec![deploy_root.to_string_lossy().to_string()];
+    let entry = add_tool(&mut cfg.tools, &name, &paths)?;
+    let _ = save_config(&cfg);
+    Ok((entry.id.clone(), entry.name.clone()))
 }
 
 /// 返回脱敏后的配置（供前端展示；工具清单走 hub_list_tools）

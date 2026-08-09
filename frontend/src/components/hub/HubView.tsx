@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { winPath } from "@/lib/path";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { Tip } from "@/components/common/Tip";
 import { GhostCard } from "@/components/common/GhostCard";
@@ -202,17 +203,19 @@ export function HubView({
     [statuses]
   );
 
-  // P9：按统一筛选条件过滤后的台账（平铺，不再按工具分块）
+  // P9：按统一筛选条件过滤后的台账（平铺，不再按工具分块）。
+  // 与逻辑（AND）：每个已选 tag 都是独立谓词，条目须全部满足才显示——
+  // 选中「链接」+「正常」= 正常链接；选中「链接」+「副本」= 无结果。
   const filtered = useMemo(
     () =>
       statuses.filter((s) => {
-        const modeOk = fMode.size === 0 || fMode.has(s.mode);
-        const healthOk =
-          fHealth.size === 0 ||
-          (fHealth.has("normal") && s.health === "normal") ||
-          (fHealth.has("abnormal") && s.health !== "normal");
-        const toolOk = fTools.size === 0 || fTools.has(s.target_tool);
-        return modeOk && healthOk && toolOk;
+        for (const m of fMode) if (s.mode !== m) return false;
+        for (const h of fHealth) {
+          if (h === "normal" ? s.health !== "normal" : s.health === "normal")
+            return false;
+        }
+        for (const t of fTools) if (s.target_tool !== t) return false;
+        return true;
       }),
     [statuses, fMode, fHealth, fTools]
   );
@@ -414,14 +417,14 @@ export function HubView({
         side="bottom"
         label={
           <span className="block font-mono text-[11px]">
-            出处：{s.source}
+            出处：{winPath(s.source)}
             <br />
-            落点：{s.target}
+            落点：{winPath(s.target)}
           </span>
         }
       >
         <span className="min-w-0 flex-1 basis-full truncate font-mono text-[11px] text-text-tertiary sm:basis-auto">
-          {s.source}
+          {winPath(s.source)}
           <ArrowRight className="mx-1 inline h-3 w-3 text-text-tertiary" />
           {toolNames[s.target_tool] ?? s.target_tool}
         </span>
@@ -445,10 +448,10 @@ export function HubView({
           <span className="shrink-0 text-[11px] font-semibold text-text-tertiary">出处</span>
           <Tip
             side="bottom"
-            label={<span className="block font-mono text-[11px]">{s.source}</span>}
+            label={<span className="block font-mono text-[11px]">{winPath(s.source)}</span>}
           >
             <span className="truncate font-mono text-[11px] text-text-tertiary">
-              {s.source}
+              {winPath(s.source)}
             </span>
           </Tip>
         </div>
@@ -465,12 +468,12 @@ export function HubView({
               <span className="block font-mono text-[11px]">
                 {toolNames[s.target_tool] ?? s.target_tool}
                 <br />
-                {s.target}
+                {winPath(s.target)}
               </span>
             }
           >
             <span className="truncate font-mono text-[11px] text-text-secondary">
-              {s.target}
+              {winPath(s.target)}
             </span>
           </Tip>
         </div>
@@ -489,6 +492,19 @@ export function HubView({
         subtitle={
           <>
             管理技能与各 AI 工具之间的链接 / 副本
+            <Tip
+              side="bottom"
+              label={
+                <span className="block max-w-[240px] leading-relaxed">
+                  建链约束：① 源须为真实目录；② 禁止循环引用（源与落点互含被拒）；
+                  ③ 同名落点拒绝；④ 一个源可对多个落点（1 对多）。
+                </span>
+              }
+            >
+              <span className="ml-1 inline-grid h-[15px] w-[15px] cursor-help place-items-center rounded-full border border-stroke bg-glass-2 align-middle font-mono text-[10px] text-text-tertiary hover:border-stroke-hi hover:text-text-secondary">
+                ?
+              </span>
+            </Tip>
             {abnormalCount > 0 && (
               <span className="ml-2 text-amber-500">
                 {abnormalCount} 条异常需要处理
@@ -563,7 +579,9 @@ export function HubView({
               </div>
               <div className="flex items-center justify-between border-t border-stroke px-3 py-2">
                 <span className="text-[11px] text-text-tertiary">
-                  {filterActiveCount > 0 ? `已选 ${filterActiveCount} 项` : "未启用筛选"}
+                  {filterActiveCount > 0
+                    ? `已选 ${filterActiveCount} 项 · 叠加（AND）`
+                    : "未启用筛选"}
                 </span>
                 <button
                   type="button"
@@ -573,6 +591,9 @@ export function HubView({
                 >
                   清除全部
                 </button>
+              </div>
+              <div className="border-t border-stroke/60 px-3 py-1.5 text-[10.5px] text-text-tertiary">
+                多条件为「与」逻辑：需同时满足所有已选标签
               </div>
             </PopoverContent>
           </Popover>
