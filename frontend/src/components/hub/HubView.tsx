@@ -417,16 +417,18 @@ export function HubView({
         side="bottom"
         label={
           <span className="block font-mono text-[11px]">
-            出处：{winPath(s.source)}
+            落点：{toolNames[s.target_tool] ?? s.target_tool}
             <br />
-            落点：{winPath(s.target)}
+            {winPath(s.target)}
           </span>
         }
       >
-        <span className="min-w-0 flex-1 basis-full truncate font-mono text-[11px] text-text-tertiary sm:basis-auto">
-          {winPath(s.source)}
-          <ArrowRight className="mx-1 inline h-3 w-3 text-text-tertiary" />
-          {toolNames[s.target_tool] ?? s.target_tool}
+        <span className="flex min-w-0 flex-1 basis-full items-center gap-1.5 font-mono text-[11px] sm:basis-auto">
+          <span className="shrink-0 text-[10.5px] font-semibold text-text-tertiary">出处</span>
+          <span className="truncate text-text-tertiary">{winPath(s.source)}</span>
+          <ArrowRight className="h-3 w-3 shrink-0 text-text-tertiary" />
+          <span className="shrink-0 text-[10.5px] font-semibold text-brand">落点</span>
+          <span className="min-w-0 truncate text-text-secondary">{winPath(s.target)}</span>
         </span>
       </Tip>
       {healthChip(s)}
