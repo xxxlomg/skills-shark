@@ -192,3 +192,14 @@ pub fn sync_deleted_status(current_ids: &[String]) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// 更新一条译文的 title_zh（C10 译文元数据编辑时同步）。不存在则 no-op。
+pub fn set_title_zh(skill_id: &str, title_zh: &str) -> Result<(), String> {
+    let mut index = load_all_meta();
+    if let Some(meta) = index.get_mut(skill_id) {
+        meta.title_zh = title_zh.to_string();
+        save_all_meta(&index)
+    } else {
+        Ok(())
+    }
+}

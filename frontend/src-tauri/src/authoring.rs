@@ -676,6 +676,35 @@ pub fn skill_edit_frontmatter(
     Ok(serde_json::json!({ "validation": report }))
 }
 
+/// 译文元数据行级编辑：定位译文 .md 的 translated 段，只改该段 frontmatter
+/// 的 name/description（其余未知字段字节级保留，与原文 C10 同策略）。
+/// 若改了 name，同步 translations.json 的 title_zh（译文标题）。
+#[tauri::command]
+pub fn edit_translation_frontmatter(
+    skill_id: String,
+    edits: Vec<FrontmatterEdit>,
+) -> Result<serde_json::Value, String> {
+    let md_path = crate::config::translations_dir()
+        .join(crate::translations::md_filename(&skill_id));
+    let content = std::fs::read_to_string(&md_path).map_err(|e| format!("读取译文失败:{e}"))?;
+
+    // 定位 translated 段（anchor 起头的译文部分，含 frontmatter 结构）
+    const ANCHOR: &str = "<!-- anchor:translated -->";
+    let (before, translated) = match content.split_once(ANCHOR) {
+        Some((b, t)) => (format!("{b}{ANCHOR}"), t.to_string()),
+        None => (String::new(), content.clone()),
+    };
+    let new_translated = edit_frontmatter_checked(&translated, &edits)?;
+    std::fs::write(&md_path, format!("{before}{new_translated}"))
+        .map_err(|e| format!("写入译文失败:{e}"))?;
+
+    // name 修改同步 index 标题（title_zh）
+    if let Some(e) = edits.iter().find(|e| e.key == "name" && e.op == "set") {
+        crate::translations::set_title_zh(&skill_id, e.value.as_deref().unwrap_or(""))?;
+    }
+    Ok(serde_json::json!({}))
+}
+
 /// 重命名 authored 技能（UI 反馈 2026-08-05）：目录名 + frontmatter name 同步改。
 /// 仅允许 authored 根下；目标名已存在 → Err("EXISTS")；
 /// 台账有引用指向该目录 → 拒（junction source 会失效，先解除再改名）。

@@ -7,7 +7,6 @@ import {
   Languages,
   Loader2,
   FolderSymlink,
-  Save,
   StopCircle,
   PenLine,
 } from "lucide-react";
@@ -28,7 +27,11 @@ import {
   translateSkill,
   loadTranslation,
 } from "@/lib/translate-api";
-import { readSkillFile, skillEditFrontmatter } from "@/lib/api";
+import {
+  readSkillFile,
+  skillEditFrontmatter,
+  editTranslationFrontmatter,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { loadLLMConfig } from "@/lib/llm-config";
@@ -371,7 +374,13 @@ export function DetailSheet({
             </p>
             {/* C10：frontmatter 表单编辑（与创作页共用 skill_edit_frontmatter，
                 未知字段字节级保留） */}
-            {!isDeleted && <MetaEditForm skill={skill} onSaved={onEdited} />}
+            {!isDeleted && (
+              <MetaEditForm
+                skill={skill}
+                lang={view === "zh" ? "zh" : "en"}
+                onSaved={onEdited}
+              />
+            )}
           </div>
           <button
             type="button"
@@ -650,27 +659,47 @@ function BilingualView({
   );
 }
 
-/** C10：frontmatter 元数据表单编辑（行级外科手术，未知字段字节级保留）。 */
+/** C10：frontmatter 元数据表单编辑（行级外科手术，未知字段字节级保留）。
+ *  underlang 决定编辑对象：en → 原文 SKILL.md 的 name/description；
+ *  zh → 译文 .md translated 段的 name/description（改 name 同步译文标题）。 */
 function MetaEditForm({
   skill,
+  lang,
   onSaved,
 }: {
   skill: Skill;
+  lang: "en" | "zh";
   onSaved?: () => void;
 }) {
   const [openForm, setOpenForm] = useState(false);
-  const [name, setName] = useState(skill.name);
-  const [desc, setDesc] = useState(skill.description);
+  const [name, setName] = useState(
+    lang === "zh" ? skill.title_zh : skill.name
+  );
+  const [desc, setDesc] = useState(
+    lang === "zh" ? skill.description_zh : skill.description
+  );
   const [busy, setBusy] = useState(false);
+
+  // lang / skill 切换时同步表单初值
+  useEffect(() => {
+    setName(lang === "zh" ? skill.title_zh : skill.name);
+    setDesc(lang === "zh" ? skill.description_zh : skill.description);
+  }, [lang, skill]);
 
   const save = async () => {
     setBusy(true);
     try {
-      await skillEditFrontmatter(skill.skill_dir, [
-        { key: "name", op: "set", value: name },
-        { key: "description", op: "set", value: desc },
-      ]);
-      toast.success("frontmatter 已保存（未知字段保留）");
+      const edits = [
+        { key: "name", op: "set" as const, value: name },
+        { key: "description", op: "set" as const, value: desc },
+      ];
+      if (lang === "zh") {
+        await editTranslationFrontmatter(skill.id, edits);
+        toast.success("译文元数据已保存（未知字段保留）");
+      } else {
+        await skillEditFrontmatter(skill.skill_dir, edits);
+        toast.success("frontmatter 已保存（未知字段保留）");
+      }
       setOpenForm(false);
       onSaved?.();
     } catch (e) {
@@ -680,32 +709,65 @@ function MetaEditForm({
     }
   };
 
+  const isZh = lang === "zh";
+
   return (
-    <div className="mt-3 rounded-md border border-border/40 bg-glass-1 p-3">
+    <div className="mt-3 rounded-md border border-stroke bg-glass p-3">
       <button
         type="button"
-        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+        className="flex w-full items-center justify-between gap-2 text-xs text-text-secondary hover:text-text-primary"
         onClick={() => setOpenForm((v) => !v)}
       >
-        <Save className="h-3 w-3" />
-        {openForm ? "收起编辑" : "编辑 name / description（未知字段保留）"}
+        <span className="flex items-center gap-1.5">
+          <PenLine className="h-3 w-3" />
+          {openForm ? "收起编辑" : "编辑元数据"}
+          <span className="rounded-[4px] border border-stroke bg-glass-2 px-1.5 py-[1px] font-mono text-[10px] text-text-tertiary">
+            {isZh ? "译文" : "原文"}
+          </span>
+        </span>
+        {!openForm && (
+          <span className="text-[10.5px] text-text-tertiary">name / description</span>
+        )}
       </button>
+
       {openForm && (
-        <div className="mt-2 flex flex-col gap-2">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-7 font-mono text-xs"
-          />
-          <Input
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            className="h-7 text-xs"
-          />
-          <Button size="sm" className="self-end" disabled={busy} onClick={save}>
-            {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-            保存
-          </Button>
+        <div className="mt-2.5 flex flex-col gap-2.5 border-t border-stroke pt-2.5">
+          {/* 用途与范围说明 */}
+          <p className="text-[11px] leading-relaxed text-text-tertiary">
+            <span className="text-text-secondary">本产品定义的元数据</span>：name（技能名）
+            与 description（一句话描述），用于技能库展示与检索。当前编辑{" "}
+            <span className="text-text-secondary">{isZh ? "译文" : "原文"}</span>
+            版本；frontmatter 中其他未知字段将字节级原样保留，不受影响。
+          </p>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] text-text-tertiary">name（技能名）</span>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-7 font-mono text-xs"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] text-text-tertiary">
+              description（一句话描述）
+            </span>
+            <Input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              className="h-7 text-xs"
+            />
+          </label>
+
+          <div className="flex items-center justify-end gap-2.5">
+            <span className="text-[10.5px] text-text-tertiary">
+              未知字段字节级保留
+            </span>
+            <Button size="sm" disabled={busy} onClick={save}>
+              {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+              保存
+            </Button>
+          </div>
         </div>
       )}
     </div>
