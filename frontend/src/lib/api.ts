@@ -985,15 +985,6 @@ export function skillEditFrontmatter(
   return invoke("skill_edit_frontmatter", { skillDir, edits });
 }
 
-/** C10 译文版：编辑译文 .md translated 段 frontmatter 的 name/description
- * （未知字段字节级保留）；改 name 会同步译文标题 title_zh。 */
-export function editTranslationFrontmatter(
-  skillId: string,
-  edits: { key: string; op: "set" | "delete"; value?: string }[]
-): Promise<void> {
-  return invoke("edit_translation_frontmatter", { skillId, edits });
-}
-
 /** 重命名 authored 技能（目录名 + frontmatter 同步；有 Hub 引用拒）。 */
 export function skillRename(
   skillDir: string,

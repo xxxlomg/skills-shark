@@ -65,7 +65,6 @@ pub fn run() {
             authoring::openai_yaml_generate,
             authoring::claude_md_generate,
             authoring::skill_edit_frontmatter,
-            authoring::edit_translation_frontmatter,
             authoring::skill_rename,
             authoring::skill_list_files,
             authoring::skill_delete_file,

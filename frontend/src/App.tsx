@@ -728,7 +728,6 @@ function App() {
         onSettingsOpen={() => setSettingsOpen(true)}
         onTranslateDone={handleSync}
         onLinkSkill={(s) => openLinkDialog(s.id)}
-        onEdited={refresh}
         onEdit={handleEditSkill}
       />
 
