@@ -89,6 +89,14 @@ pub(crate) fn clean_path_str(p: &Path) -> String {
     stripped.replace('/', "\\")
 }
 
+/// P8/D3：两路径是否互相包含（a 是 b 的祖先或同级相等）。用于禁环：
+/// 源与引用落点任一方向嵌套都会形成循环引用（扫描时 junction 指向自身子树）。
+fn is_nested(a: &Path, b: &Path) -> bool {
+    let ac = clean_path_str(a).trim_end_matches('\\').to_string();
+    let bc = clean_path_str(b).trim_end_matches('\\').to_string();
+    ac == bc || ac.starts_with(&format!("{}\\", bc)) || bc.starts_with(&format!("{}\\", ac))
+}
+
 pub fn load_ledger(base: &Path) -> LinksLedger {
     let path = ledger_path(base);
     if !path.exists() {
@@ -201,6 +209,20 @@ pub fn link_skill_to_dir(
         .map(|n| n.to_string_lossy().to_string())
         .ok_or_else(|| "无法取得技能目录名".to_string())?;
     let dest = target_root.join(&name);
+
+    // P8/D3：禁止循环引用 —— 源与引用落点任一方向嵌套（源在落点内、或落点在源内）
+    // 都会形成循环（junction 指向自身子树，扫描死循环 / 双身份）。先于一切副作用拒绝。
+    {
+        let target_abs = fs::canonicalize(target_root).unwrap_or_else(|_| target_root.to_path_buf());
+        if is_nested(&source_abs, &target_abs) {
+            return Err(format!(
+                "「{}」与引用落点互相包含，会形成循环引用，已拒绝（{} 与 {}）",
+                name,
+                source_abs.display(),
+                target_abs.display()
+            ));
+        }
+    }
 
     let mut ledger = load_ledger(base);
     if dest_exists(&dest) {
@@ -591,6 +613,38 @@ mod tests {
 
         let ledger = load_ledger(&base);
         assert_eq!(ledger.links.len(), 1);
+        cleanup(&root);
+    }
+
+    /// P8/D3：禁止循环引用。把「已在落点内的技能」或「包含落点的集合」当源 →
+    /// 若源与落点互相嵌套则拒绝，且不产生任何落盘副作用。
+    #[test]
+    fn cycle_within_target_root_rejected() {
+        let root = tmp_root("cycle");
+        let src_root = root.join("src");
+        let tgt_root = root.join("tgt");
+        fs::create_dir_all(&src_root).unwrap();
+        fs::create_dir_all(&tgt_root).unwrap();
+        let base = root.join("data");
+
+        // 场景 A：源在落点内部（技能已在 tgt 下，再链回 tgt → 自包含）
+        let inside = make_skill(&tgt_root, "already-here");
+        let err = link_skill_to_dir(&base, &inside, &tgt_root, "codex", LinkMode::Link).unwrap_err();
+        assert!(err.contains("循环引用"), "应拒绝源在落点内: {}", err);
+        assert!(
+            load_ledger(&base).links.is_empty(),
+            "拒绝时不得写账本"
+        );
+
+        // 场景 B：落点在源内部（源是包含落点的集合 → 链接会指向自身子树）
+        let contain = make_skill(&src_root, "contain");
+        let sub_target = contain.join("sub");
+        fs::create_dir_all(&sub_target).unwrap();
+        let err =
+            link_skill_to_dir(&base, &contain, &sub_target, "codex", LinkMode::Copy).unwrap_err();
+        assert!(err.contains("循环引用"), "应拒绝落点在源内: {}", err);
+        assert!(load_ledger(&base).links.is_empty());
+
         cleanup(&root);
     }
 

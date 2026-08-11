@@ -12,9 +12,14 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** 行内 Markdown（code / bold / link） */
+/** 行内 Markdown（image / code / bold / link） */
 export function inlineMd(text: string): string {
   return escapeHtml(text)
+    // 图片先于链接处理，避免 ![alt](url) 被链接规则截半
+    .replace(
+      /!\[([^\]]*)\]\(([^)\s]+)\)/g,
+      '<img src="$2" alt="$1" loading="lazy" />',
+    )
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(
@@ -49,7 +54,12 @@ function renderTable(rows: string[]): string {
 
 /** 完整 Markdown → HTML */
 export function renderMd(mdText: string): string {
-  const lines = String(mdText || "").split("\n");
+  // 归一化行尾：CRLF/CR → LF。否则 split("\n") 后每行行尾残留 \r，
+  // 使依赖 $ 锚定的标题/列表/表格/引用正则全部失效（手册 .md 为 CRLF 时整篇退化成纯段落）。
+  const lines = String(mdText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n");
   const html: string[] = [];
   let i = 0;
   let listType: "ul" | "ol" | null = null;

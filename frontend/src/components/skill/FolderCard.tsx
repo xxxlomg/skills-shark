@@ -1,7 +1,7 @@
 import { memo, type CSSProperties } from "react";
 import { Folder } from "lucide-react";
 import { Tip } from "@/components/common/Tip";
-import { skillStatus, type Skill, type SkillGroup } from "@/hooks/useSkills";
+import { skillStatus, toolDisplayName, type Skill, type SkillGroup } from "@/hooks/useSkills";
 
 interface FolderCardProps {
   group: SkillGroup;
@@ -36,13 +36,13 @@ export const FolderCard = memo(function FolderCard({
           onClick={onClick}
           className="glass-card glass-card-hover card-glow relative flex w-full items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
         >
-          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-brand opacity-85" />
           <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
             <Folder className="h-5 w-5" />
           </span>
           <div className="relative z-[1] min-w-0">
             <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
-              {group.label}
+              {toolDisplayName(group.label)}
             </h3>
             <p className="font-mono text-[11px] text-text-tertiary">
               {ok}/{total} 已翻译
@@ -87,12 +87,12 @@ export const FolderCard = memo(function FolderCard({
           <span className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-[13px] border border-stroke bg-glass-2 text-brand">
             <Folder className="h-[22px] w-[22px]" />
           </span>
-          <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-text-secondary">
+          <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-text-secondary">
             {total}
           </span>
         </div>
         <h3 className="relative z-[1] mt-4 truncate font-display text-[19px] font-semibold leading-snug text-text-primary">
-          {group.label}
+          {toolDisplayName(group.label)}
         </h3>
         <p className="relative z-[1] mt-[3px] font-mono text-[12px] text-text-tertiary">
           {ok}/{total} 已翻译

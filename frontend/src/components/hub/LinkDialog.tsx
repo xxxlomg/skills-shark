@@ -8,7 +8,12 @@ import {
   Loader2,
   Link2,
   Layers,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
 } from "lucide-react";
+import { ExpandCollapseAll } from "@/components/common/ExpandCollapseAll";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -20,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tip } from "@/components/common/Tip";
+import { collectionDisplayName } from "@/hooks/useSkills";
 import {
   hubLinkSkill,
   hubLinkableTools,
@@ -107,6 +113,96 @@ export function LinkDialog({ skills, initialSkillId, onClose, onLinked }: LinkDi
     return list.slice(0, 60);
   }, [skills, query]);
 
+  // ---- 树结构（工具 → 合集 → 技能），懒展开：默认仅渲染展开分支 ----
+  interface CollNode {
+    path: string;
+    skills: Skill[];
+  }
+  interface ToolNode {
+    label: string;
+    count: number;
+    indep: Skill[];
+    colls: CollNode[];
+  }
+
+  const tree = useMemo<ToolNode[]>(() => {
+    const map = new Map<
+      string,
+      { indep: Skill[]; colls: Map<string, Skill[]> }
+    >();
+    for (const s of skills) {
+      const label = s.scan_label || s.tool_id || "未分类";
+      let t = map.get(label);
+      if (!t) {
+        t = { indep: [], colls: new Map() };
+        map.set(label, t);
+      }
+      if (s.parent_collection) {
+        const arr = t.colls.get(s.parent_collection) ?? [];
+        arr.push(s);
+        t.colls.set(s.parent_collection, arr);
+      } else {
+        t.indep.push(s);
+      }
+    }
+    return [...map.entries()]
+      .map(([label, t]) => ({
+        label,
+        count: t.indep.length + [...t.colls.values()].reduce((n, a) => n + a.length, 0),
+        indep: t.indep,
+        colls: [...t.colls.entries()]
+          .map(([path, entry]) => ({ path, skills: entry }))
+          .sort((a, b) =>
+            collectionDisplayName(a.path).localeCompare(collectionDisplayName(b.path))
+          ),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [skills]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleExpand = useMemo(
+    () => (key: string) =>
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    [],
+  );
+
+  // 从技能详情页进入时：预选技能所在分支自动展开（懒加载下让用户直接看到选中项）
+  useEffect(() => {
+    if (!initialSkillId) return;
+    const s = skills.find((x) => x.id === initialSkillId);
+    if (!s) return;
+    const label = s.scan_label || s.tool_id || "未分类";
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(`tool:${label}`);
+      if (s.parent_collection) next.add(`coll:${label}\u241f${s.parent_collection}`);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSkillId]);
+
+  // ---- 一键展开 / 收起全部（工具 + 合集全量进/出 expanded 集） ----
+  const expandAllTree = useMemo(
+    () => () => {
+      const next = new Set<string>();
+      for (const t of tree) {
+        next.add(`tool:${t.label}`);
+        for (const c of t.colls) next.add(`coll:${t.label}\u241f${c.path}`);
+      }
+      setExpanded(next);
+    },
+    [tree],
+  );
+  const collapseAllTree = useMemo(
+    () => () => setExpanded(new Set()),
+    [],
+  );
+
   const selectedSkill = skills.find((s) => s.id === skillId) ?? null;
   const selectedTool = tools.find((t) => t.id === toolId) ?? null;
   const moveBlocked = selectedSkill?.tool_id === "builtin";
@@ -157,6 +253,37 @@ export function LinkDialog({ skills, initialSkillId, onClose, onLinked }: LinkDi
     }
   };
 
+  /** 技能行（搜索扁平 / 树叶子共用）；showLabel 显示所属工具（仅搜索模式需要） */
+  const skillRow = (s: Skill, showLabel: boolean) => {
+    const active = s.id === skillId;
+    return (
+      <button
+        key={s.id}
+        type="button"
+        onClick={() => setSkillId(active ? null : s.id)}
+        className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-[5px] text-left text-sm transition-colors ${
+          active
+            ? "border-brand bg-brand/10 font-medium text-text-primary ring-1 ring-brand/50"
+            : "border-transparent text-text-secondary hover:bg-glass-2 hover:text-text-primary"
+        }`}
+      >
+        <span className="shrink-0 text-[13px]">
+          {active ? (
+            <Check className="h-4 w-4 text-brand" />
+          ) : (
+            (s.emoji || <FolderSymlink className="h-4 w-4 text-text-tertiary" />)
+          )}
+        </span>
+        <span className="flex-1 truncate">{s.name}</span>
+        {showLabel && (
+          <span className="shrink-0 text-[10.5px] text-text-tertiary">
+            {s.scan_label}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="flex h-[min(620px,88vh)] w-[min(880px,94vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
@@ -185,31 +312,87 @@ export function LinkDialog({ skills, initialSkillId, onClose, onLinked }: LinkDi
                 />
               </div>
             </div>
+            <div className="flex shrink-0 items-center justify-between px-4 pb-1 pt-0.5">
+              <span className="text-[11px] font-medium text-text-tertiary">技能树</span>
+              <ExpandCollapseAll
+                onExpandAll={expandAllTree}
+                onCollapseAll={collapseAllTree}
+              />
+            </div>
             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 pb-4">
-              {filtered.length === 0 && (
-                <p className="py-6 text-center text-xs text-text-tertiary">无匹配技能</p>
+              {query.trim() ? (
+                /* 搜索模式：扁平列表 */
+                filtered.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-text-tertiary">无匹配技能</p>
+                ) : (
+                  filtered.map((s) => skillRow(s, true))
+                )
+              ) : tree.length === 0 ? (
+                <p className="py-6 text-center text-xs text-text-tertiary">暂无技能可引用</p>
+              ) : (
+                /* 默认：树结构（工具 → 合集 → 技能），懒展开 */
+                tree.map((tool) => {
+                  const toolKey = `tool:${tool.label}`;
+                  const openTool = expanded.has(toolKey);
+                  const hasChildren = tool.indep.length > 0 || tool.colls.length > 0;
+                  return (
+                    <div key={toolKey}>
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(toolKey)}
+                        className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-[5px] pr-1.5 text-left transition-colors hover:bg-glass-2"
+                      >
+                        <span className="shrink-0 text-text-tertiary">
+                          {openTool ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                        </span>
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                        <span className="flex-1 truncate text-sm font-medium text-text-secondary">
+                          {tool.label}
+                        </span>
+                      </button>
+                      {openTool && hasChildren && (
+                        <div className="ml-[9px] space-y-1 border-l border-stroke/50 pl-[7px]">
+                          {tool.indep.map((s) => skillRow(s, false))}
+                          {tool.colls.map((coll) => {
+                            const collKey = `coll:${tool.label}\u241f${coll.path}`;
+                            const openColl = expanded.has(collKey);
+                            return (
+                              <div key={collKey}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpand(collKey)}
+                                  className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-[5px] pr-1.5 text-left transition-colors hover:bg-glass-2"
+                                >
+                                  <span className="shrink-0 text-text-tertiary">
+                                    {openColl ? (
+                                      <ChevronDown className="h-3 w-3" />
+                                    ) : (
+                                      <ChevronRight className="h-3 w-3" />
+                                    )}
+                                  </span>
+                                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                                  <span className="flex-1 truncate text-[13px] font-medium text-text-secondary">
+                                    {collectionDisplayName(coll.path)}
+                                  </span>
+                                </button>
+                                {openColl && (
+                                  <div className="space-y-1 pt-1">
+                                    {coll.skills.map((s) => skillRow(s, false))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
-              {filtered.map((s) => {
-                const active = s.id === skillId;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setSkillId(active ? null : s.id)}
-                    className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition-colors ${
-                      active
-                        ? "border-brand bg-brand/10 font-medium text-text-primary ring-1 ring-brand/50"
-                        : "border-transparent text-text-secondary hover:bg-glass-2 hover:text-text-primary"
-                    }`}
-                  >
-                    <span className={`shrink-0 ${active ? "text-brand" : "text-text-tertiary"}`}>
-                      {active ? <Check className="h-4 w-4" /> : <FolderSymlink className="h-4 w-4" />}
-                    </span>
-                    <span className="flex-1 truncate">{s.name}</span>
-                    <span className="shrink-0 text-xs text-text-tertiary">{s.scan_label}</span>
-                  </button>
-                );
-              })}
             </div>
           </aside>
 

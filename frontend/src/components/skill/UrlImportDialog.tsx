@@ -42,7 +42,7 @@ export function UrlImportDialog({ onClose, onReady }: UrlImportDialogProps) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
-      <DialogContent className="max-w-md border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="max-w-md border-border/60 bg-card">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-primary" />

@@ -18,6 +18,7 @@ use tauri::Manager;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::cell::RefCell;
 
 /// 追加写调试日志到 _data/debug.log（release 也能查）
 pub fn debug_log(msg: &str) {
@@ -42,6 +43,14 @@ pub fn debug_log(msg: &str) {
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+// 单测线程局部覆盖：cargo test 每个 #[test] 跑在独立线程，各自 set 到自己的
+// 临时目录，互不污染（此前用全局 OnceLock，并行测试共享一个槽位，谁先设谁赢，
+// 导致数据目录相关测试互相踩踏——PLAN-09 P10b 新增数据目录测试时实锤）。
+// 生产代码从不 set 这个线程局部值，get_data_dir() 照常回落 OnceLock。
+thread_local! {
+    static TEST_DATA_DIR: RefCell<Option<PathBuf>> = RefCell::new(None);
+}
 
 /// 项目根（frontend/src-tauri 上两级 = skills-shark/）
 fn project_root() -> PathBuf {
@@ -136,18 +145,40 @@ fn migrate_legacy_data(target: &PathBuf) {
 
 /// 获取数据目录。init 前回退旧版项目 _data（保持旧行为不崩）。
 pub fn get_data_dir() -> PathBuf {
-    DATA_DIR.get().cloned().unwrap_or_else(legacy_data_dir)
+    TEST_DATA_DIR
+        .with(|d| d.borrow().clone())
+        .unwrap_or_else(|| DATA_DIR.get().cloned().unwrap_or_else(legacy_data_dir))
 }
 
-/// 单测专用：把 DATA_DIR 指到临时目录，避免测试触碰真实用户数据。
+/// 单测专用：把当前测试线程的数据目录指到临时目录，避免触碰真实用户数据。
+/// 线程局部覆盖 → 并行测试各自隔离，不再共享全局竞态。
 #[cfg(test)]
 pub fn set_data_dir_for_test(p: PathBuf) {
-    let _ = DATA_DIR.set(p);
+    TEST_DATA_DIR.with(|d| *d.borrow_mut() = Some(p));
 }
 
 /// 导入 skills 存放目录（PLAN-04 §3，Phase 1 接入扫描与 UI）
+/// PLAN-09 P5：若配置了自定义下载/导入目录则优先使用，否则沿用默认。
 pub fn imported_dir() -> PathBuf {
-    get_data_dir().join("imported")
+    effective_import_path(&load_config())
+}
+
+/// 由配置计算生效的下载/导入目录（自定义路径走 expand_path 展开，失败回退默认）
+fn effective_import_path(cfg: &AppConfig) -> PathBuf {
+    let default = get_data_dir().join("imported");
+    match cfg.download_dir.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => expand_path(s).unwrap_or(default),
+        _ => default,
+    }
+}
+
+/// PLAN-09 P5：保存自定义下载/导入目录（空串/None = 恢复默认）
+pub fn set_download_dir(dir: Option<String>) -> Result<(), String> {
+    let mut cfg = load_config();
+    cfg.download_dir = dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    save_config(&cfg)
 }
 
 /// C5（PLAN-06 §3.13）：创作 skills 存放目录（skill_new 模板模式落点）
@@ -251,6 +282,9 @@ pub struct AppConfig {
     /// 模块 A 发布侧：「我的技能仓库」本地路径 + remote（PLAN-06 §1.3）
     #[serde(default)]
     pub publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：技能下载/导入目录（None = 沿用默认 %APPDATA%\Skills Shark\imported）
+    #[serde(default)]
+    pub download_dir: Option<String>,
 }
 
 /// 发布用技能仓库配置（无敏感字段：凭据完全走用户 git 环境，§1.3）
@@ -270,6 +304,9 @@ struct RawConfig {
     llm: Option<LLMConfig>,
     #[serde(default)]
     publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：自定义下载/导入目录（缺失 = 沿用默认）
+    #[serde(default)]
+    download_dir: Option<String>,
 }
 
 fn default_llm() -> LLMConfig {
@@ -429,6 +466,34 @@ fn push_path_if_new(paths: &mut Vec<String>, candidate: &str) {
     paths.push(c.to_string());
 }
 
+/// 某路径是否已被任一工具注册为扫描路径（按展开后语义比较；展开失败按原文比较）。
+/// 返回占用该路径的工具名。文件路径是扫描根的唯一判定标准（D7：扫描根互不相交）。
+/// `exclude_id`：排除某工具自身（更新自己 paths 时不应把自己算作冲突）。
+pub fn path_taken_by(tools: &[ToolEntry], path: &str, exclude_id: Option<&str>) -> Option<String> {
+    let c = path.trim();
+    if c.is_empty() {
+        return None;
+    }
+    let c_norm = expand_path(c).map(|p| norm_for_compare(&p));
+    for t in tools {
+        if Some(t.id.as_str()) == exclude_id {
+            continue;
+        }
+        for cand in t.paths.iter() {
+            let e_norm = expand_path(cand).map(|p| norm_for_compare(&p));
+            let hit = match (&c_norm, &e_norm) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => c == cand.trim(),
+                _ => false,
+            };
+            if hit {
+                return Some(t.name.clone());
+            }
+        }
+    }
+    None
+}
+
 /// 新鲜安装默认：builtin 自有源 + 全量注册表（enabled；扫描时过滤不存在的目录）
 pub fn default_tools() -> Vec<ToolEntry> {
     let mut tools = vec![app_owned_tool(TOOL_ID_BUILTIN, "builtin")];
@@ -504,10 +569,16 @@ pub fn add_tool(
     if tools.iter().any(|t| t.name == name) {
         return Err(format!("已存在同名工具：{}", name));
     }
+    let cleaned = validate_tool_paths(paths)?;
+    for p in &cleaned {
+        if let Some(owner) = path_taken_by(tools, p, None) {
+            return Err(format!("扫描路径已被「{}」占用：{}", owner, p));
+        }
+    }
     let entry = ToolEntry {
         id: custom_tool_id(tools, name),
         name: name.to_string(),
-        paths: validate_tool_paths(paths)?,
+        paths: cleaned,
         builtin: false,
         enabled: true,
         linkable: true,
@@ -544,7 +615,13 @@ pub fn update_tool(
     }
     if let Some(p) = paths {
         if !tools[pos].app_owned {
-            tools[pos].paths = validate_tool_paths(p)?;
+            let cleaned = validate_tool_paths(p)?;
+            for cand in &cleaned {
+                if let Some(owner) = path_taken_by(tools, cand, Some(&id)) {
+                    return Err(format!("扫描路径已被「{}」占用：{}", owner, cand));
+                }
+            }
+            tools[pos].paths = cleaned;
         }
     }
     if let Some(e) = enabled {
@@ -736,10 +813,11 @@ pub fn load_config() -> AppConfig {
 
     ensure_app_owned_entries(&mut tools);
     let publish_repo = raw.as_ref().and_then(|r| r.publish_repo.clone());
+    let download_dir = raw.as_ref().and_then(|r| r.download_dir.clone());
     let llm = raw
         .and_then(|r| r.llm)
         .unwrap_or_else(default_llm);
-    let cfg = AppConfig { tools, llm, publish_repo };
+    let cfg = AppConfig { tools, llm, publish_repo, download_dir };
     if migrated {
         let _ = save_config(&cfg); // 落盘固化迁移结果，下次启动走幂等路径
     }
@@ -769,6 +847,42 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| e.to_string())
 }
 
+/// D8：若 deploy_root 已等于某个 enabled 工具的扫描根，返回 (tool_id, label)。
+/// 命中 → 归属该工具模块（扩现有根），不新建根。例：装到 ~/.codex/skills → codex。
+pub fn find_tool_for_scan_path(deploy_root: &std::path::Path) -> Option<(String, String)> {
+    let cfg = load_config();
+    let norm = norm_for_compare(deploy_root);
+    for t in scan_targets_from_tools(&cfg.tools) {
+        if norm_for_compare(std::path::Path::new(&t.path)) == norm {
+            return Some((t.tool_id.clone(), t.label.clone()));
+        }
+    }
+    None
+}
+
+/// D7：为 deploy_root 新建自定义工具并持久化（auto-name 去重，从父目录名派生）。
+/// 返回 (tool_id, name)。仅在 install 提交阶段调用（preview 不写配置）。
+pub fn add_scan_root_tool(deploy_root: &std::path::Path) -> Result<(String, String), String> {
+    let mut cfg = load_config();
+    // 工具名 = 选定安装目录的末段（模块名）；skills 目录的父目录即选定目录
+    let name0 = deploy_root
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "skills".to_string());
+    let mut name = name0.clone();
+    let mut k = 2;
+    while cfg.tools.iter().any(|t| t.name == name) {
+        name = format!("{}-{}", name0, k);
+        k += 1;
+    }
+    let paths = vec![deploy_root.to_string_lossy().to_string()];
+    let entry = add_tool(&mut cfg.tools, &name, &paths)?;
+    let _ = save_config(&cfg);
+    Ok((entry.id.clone(), entry.name.clone()))
+}
+
 /// 返回脱敏后的配置（供前端展示；工具清单走 hub_list_tools）
 #[derive(Debug, Clone, Serialize)]
 pub struct MaskedConfig {
@@ -776,6 +890,8 @@ pub struct MaskedConfig {
     pub _has_key: bool,
     /// 发布仓库配置（路径+URL，无敏感内容，原样返回）
     pub publish_repo: Option<PublishRepo>,
+    /// PLAN-09 P5：当前生效的下载/导入目录
+    pub download_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -795,6 +911,7 @@ pub fn load_masked_config() -> MaskedConfig {
     } else {
         String::new()
     };
+    let download_dir = effective_import_path(&cfg).to_string_lossy().to_string();
     MaskedConfig {
         llm: MaskedLLM {
             api_key: masked_key,
@@ -803,6 +920,7 @@ pub fn load_masked_config() -> MaskedConfig {
         },
         _has_key: !cfg.llm.api_key.is_empty(),
         publish_repo: cfg.publish_repo,
+        download_dir,
     }
 }
 
@@ -844,6 +962,42 @@ mod tests {
         assert_eq!(expand_path("$SK_TEST_HOME").unwrap(), PathBuf::from(r"C:\fake-codex"));
         std::env::remove_var("SK_TEST_HOME");
         assert!(expand_path("$SK_TEST_HOME/skills").is_none()); // 未设置 → 候选失效
+    }
+
+    // ---- effective_import_path（P5 下载/导入目录）----
+
+    fn cfg_with_download(dir: Option<String>) -> AppConfig {
+        AppConfig {
+            tools: vec![],
+            llm: default_llm(),
+            publish_repo: None,
+            download_dir: dir,
+        }
+    }
+
+    #[test]
+    fn effective_import_path_default_and_custom() {
+        // None → 默认 %DATA%\imported
+        assert_eq!(
+            effective_import_path(&cfg_with_download(None)),
+            get_data_dir().join("imported")
+        );
+        // 空串/纯空白 → 默认
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some("  ".to_string()))),
+            get_data_dir().join("imported")
+        );
+        // 自定义绝对路径 → 原样使用
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some(r"D:\vault\skills".to_string()))),
+            PathBuf::from(r"D:\vault\skills")
+        );
+        // 带 ~ → 展开为 home 下路径
+        let home = dirs::home_dir().expect("home");
+        assert_eq!(
+            effective_import_path(&cfg_with_download(Some("~/downloads/skills".to_string()))),
+            home.join("downloads/skills")
+        );
     }
 
     #[test]

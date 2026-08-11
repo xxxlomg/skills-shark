@@ -1,16 +1,18 @@
 ---
+
 name: skills-shark-packs
-description: "Skill Packs workflow in SkillsShark: bundle selected skills into a shareable .skillpack, export it, import one from a local zip or Git URL, and install packs into the scanned library. Use when a user asks about packing, sharing, importing, or installing skills."
+description: "Skill Packs workflow in SkillsShark: bundle selected skills into a shareable .skillpack, export it, import one from a local zip or Git URL, and install packs into the scanned library。当a user asks about packing, sharing, importing, or installing skills时使用。"
 metadata:
   skills_shark:
     emoji: "📦"
 ---
 
+
 # Skill Packs: Package, Share, Install
 
 A **Skill Pack** (`.skillpack`) bundles related skills into one shareable file. It is the distribution unit of the SkillsShark platform: pack skills once, send the file, and any SkillsShark user can import and install it.
 
-## Pack Anatomy
+## Pack Anatomy1
 
 A `.skillpack` is a zip with an ecosystem-native layout:
 

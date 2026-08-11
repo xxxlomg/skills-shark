@@ -1,7 +1,27 @@
-import { Search, RefreshCw, Sun, Moon, Settings } from "lucide-react";
+import {
+  Search,
+  RefreshCw,
+  Sun,
+  Moon,
+  Settings,
+  CircleHelp,
+  BookOpen,
+  ExternalLink,
+} from "lucide-react";
 import { useTheme } from "next-themes";
-import sharkTile from "@/assets/brand/shark-tile.png";
+import finLight from "@/assets/brand/fin-light.png";
+import finDark from "@/assets/brand/fin-dark.png";
 import { Tip } from "@/components/common/Tip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { LINKS } from "@/lib/links";
+import { APP_VERSION } from "@/lib/version";
 
 interface TopbarProps {
   totalSkills: number;
@@ -9,6 +29,8 @@ interface TopbarProps {
   onSearchClick: () => void;
   onSync: () => void;
   onOpenSettings: () => void;
+  /** 打开使用手册白皮书面（PLAN-10 P1） */
+  onOpenManual: () => void;
 }
 
 /**
@@ -21,6 +43,7 @@ export function Topbar({
   onSearchClick,
   onSync,
   onOpenSettings,
+  onOpenManual,
 }: TopbarProps) {
   const { theme, setTheme } = useTheme();
   const isDark = theme !== "light";
@@ -29,22 +52,18 @@ export function Topbar({
     <header className="glass-topbar sticky top-0 z-40 flex items-center gap-4 px-[26px] py-3">
       {/* 品牌区 */}
       <div className="flex shrink-0 items-center gap-[11px]">
-        {/* SkillsShark mark：实心剪影鲨，浅底 navy */}
+        {/* SkillsShark mark：鳍+浪，深浅自适应（瑞士风极简，无光晕） */}
         <img
-          src={sharkTile}
+          src={isDark ? finDark : finLight}
           alt=""
           aria-hidden
           draggable={false}
-          className="h-[38px] w-[38px] rounded-[11px]"
-          style={{ boxShadow: "0 6px 18px -6px var(--glow)" }}
+          className="h-[30px] w-auto"
         />
         <div>
           <h1 className="font-display text-[17px] font-semibold leading-none tracking-[0.2px] text-text-primary">
             SkillsShark
           </h1>
-          <p className="mt-[3px] text-[11.5px] leading-none text-text-secondary">
-            本地技能管理与翻译
-          </p>
         </div>
       </div>
 
@@ -56,7 +75,7 @@ export function Topbar({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") onSearchClick();
         }}
-        className="mx-auto flex max-w-[440px] flex-1 cursor-text items-center gap-[9px] rounded-xl border border-stroke bg-glass px-[14px] py-[9px] text-[13.5px] text-text-tertiary transition-colors duration-200 hover:border-stroke-hi hover:text-text-secondary"
+        className="mx-auto flex max-w-[440px] flex-1 cursor-text items-center gap-[9px] rounded-md border border-stroke bg-glass px-[14px] py-[9px] text-[13.5px] text-text-tertiary transition-colors duration-200 hover:border-stroke-hi hover:text-text-secondary"
       >
         <Search className="h-4 w-4 shrink-0" strokeWidth={2} />
         <span className="truncate">搜索技能、分类、Pack…</span>
@@ -66,7 +85,7 @@ export function Topbar({
       {/* 右侧操作区 */}
       <div className="flex shrink-0 items-center gap-2">
         {/* 技能总数 Pill */}
-        <div className="flex items-center gap-[7px] rounded-full border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary">
+        <div className="flex items-center gap-[7px] rounded-md border border-stroke bg-glass px-[13px] py-[7px] text-[12.5px] font-medium text-text-secondary">
           <span
             className="h-[7px] w-[7px] rounded-full"
             style={{
@@ -115,6 +134,41 @@ export function Topbar({
             <Settings className="h-[18px] w-[18px]" />
           </button>
         </Tip>
+
+        {/* 关于 / 帮助（PLAN-10 P1）：版本、仓库链接、使用手册 */}
+        <DropdownMenu>
+          <Tip label="关于 SkillShark">
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="iconbtn" aria-label="关于 SkillShark">
+                <CircleHelp className="h-[18px] w-[18px]" />
+              </button>
+            </DropdownMenuTrigger>
+          </Tip>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>
+              SkillShark{" "}
+              <span className="font-mono text-text-tertiary">v{APP_VERSION}</span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <a href={LINKS.githubRepo} target="_blank" rel="noopener noreferrer">
+                <ExternalLink />
+                GitHub 仓库
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={LINKS.giteeRepo} target="_blank" rel="noopener noreferrer">
+                <ExternalLink />
+                Gitee 仓库
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onOpenManual}>
+              <BookOpen />
+              使用手册
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

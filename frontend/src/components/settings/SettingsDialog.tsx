@@ -19,10 +19,13 @@ import {
   Link2,
   Store,
   GitBranch,
+  PanelTop,
+  PanelLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isMockMode } from "@/mock";
+import { toolDisplayName } from "@/hooks/useSkills";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +53,7 @@ import {
   repoSetup,
   savePublishRepo,
   gitStatus,
+  setDownloadDir,
 } from "@/lib/api";
 import type { GitStatusInfo } from "@/lib/api";
 import { invoke } from "@tauri-apps/api/core";
@@ -62,6 +66,9 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 保存成功后的回调（用于主界面刷新列表） */
   onSaved?: () => void;
+  /** PLAN-10 P2：全局布局切换（顶栏 / 侧栏） */
+  navMode?: "top" | "sidebar";
+  onNavModeChange?: (mode: "top" | "sidebar") => void;
 }
 
 type Section = "llm" | "tools" | "repo" | "appearance";
@@ -73,7 +80,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Key; hint: string }[]
   { id: "appearance", label: "外观", icon: Palette, hint: "界面主题色" },
 ];
 
-export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, onSaved, navMode, onNavModeChange }: SettingsDialogProps) {
   // 当前分区（sidebar 导航）
   const [section, setSection] = useState<Section>("llm");
 
@@ -103,6 +110,9 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
   const [repoRemoteUrl, setRepoRemoteUrl] = useState("");
   const [repoBusy, setRepoBusy] = useState(false);
   const [repoStatus, setRepoStatus] = useState<GitStatusInfo | null>(null);
+  // P5 下载/导入目录
+  const [downloadDir, setDownloadDirState] = useState("");
+  const [downloadDirSaving, setDownloadDirSaving] = useState(false);
 
   // 加载配置
   useEffect(() => {
@@ -117,6 +127,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
             local_path: "D:\\mock\\my-skill-repo",
             remote_url: "https://github.com/mock/my-skill-repo.git",
           },
+          download_dir: "D:\\mock\\skills",
         });
       }
       return invoke<MaskedConfig>("load_config");
@@ -135,6 +146,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
         setTools(toolList);
         setRepoLocalPath(masked.publish_repo?.local_path ?? "");
         setRepoRemoteUrl(masked.publish_repo?.remote_url ?? "");
+        setDownloadDirState(masked.download_dir ?? "");
         if (masked.publish_repo) {
           gitStatus().then(setRepoStatus).catch(() => setRepoStatus(null));
         } else {
@@ -334,6 +346,50 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
     }
   }, [onSaved]);
 
+  // ---- P5 下载/导入目录 ----
+
+  const handleDownloadDirPick = useCallback(async () => {
+    if (isMockMode()) {
+      toast.info("Mock 模式不支持选择文件夹，请直接输入路径");
+      return;
+    }
+    try {
+      const picked = await openFileDialog({ directory: true, multiple: false });
+      if (typeof picked === "string") setDownloadDirState(picked);
+    } catch {
+      /* 用户取消 */
+    }
+  }, []);
+
+  const handleSaveDownloadDir = useCallback(async () => {
+    setDownloadDirSaving(true);
+    try {
+      await setDownloadDir(downloadDir.trim());
+      toast.success(downloadDir.trim() ? "下载/导入目录已保存" : "已恢复默认下载目录");
+      onSaved?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      toast.error(`保存失败：${msg}`);
+    } finally {
+      setDownloadDirSaving(false);
+    }
+  }, [downloadDir, onSaved]);
+
+  const handleResetDownloadDir = useCallback(async () => {
+    setDownloadDirState("");
+    setDownloadDirSaving(true);
+    try {
+      await setDownloadDir("");
+      toast.success("已恢复默认下载目录");
+      onSaved?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      toast.error(`操作失败：${msg}`);
+    } finally {
+      setDownloadDirSaving(false);
+    }
+  }, [onSaved]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(660px,88vh)] w-[min(880px,94vw)] flex-col gap-0 overflow-hidden p-0 sm:max-w-none">
@@ -457,6 +513,10 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                   )}
                 </div>
 
+                <p className="text-[11px] text-text-tertiary">
+                  💡「测试连接」仅校验配置，需点底部「保存配置」后对翻译生效。
+                </p>
+
                 <p className="text-xs text-muted-foreground">
                   ⚠️ API Key 仅保存在本机配置文件，不会上传到任何外部服务。
                 </p>
@@ -508,7 +568,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                         </Tip>
                         <div className="flex-1 min-w-0">
                           <p className="flex items-center gap-2 text-sm font-medium">
-                            <span className="truncate">{t.name}</span>
+                            <span className="truncate">{toolDisplayName(t.name)}</span>
                             <span className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
                               {badge}
                             </span>
@@ -595,6 +655,54 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                     <Plus className="mr-1 h-3 w-3" />
                     {addingTool ? "添加中…" : "添加工具"}
                   </Button>
+                </div>
+
+                {/* P5 下载/导入路径 */}
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    下载/导入路径
+                  </p>
+                  <p className="text-[11px] text-text-tertiary">
+                    URL 下载、Pack 安装、zip/目录导入的技能存放目录。留空使用默认。
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="D:\skills-downloads （留空 = 默认）"
+                      value={downloadDir}
+                      onChange={(e) => setDownloadDirState(e.target.value)}
+                      className="text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadDirPick}
+                      className="shrink-0"
+                    >
+                      选择…
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleSaveDownloadDir}
+                      disabled={downloadDirSaving || !loaded}
+                    >
+                      {downloadDirSaving ? "保存中…" : "保存路径"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleResetDownloadDir}
+                      disabled={downloadDirSaving || !loaded}
+                      className="text-text-tertiary"
+                    >
+                      恢复默认
+                    </Button>
+                  </div>
                 </div>
               </>
             )}
@@ -751,6 +859,45 @@ export function SettingsDialog({ open, onOpenChange, onSaved }: SettingsDialogPr
                       )}
                     </button>
                   ))}
+                </div>
+
+                {/* PLAN-10 P2：全局布局切换（立即生效并自动保存） */}
+                <div className="space-y-1.5 border-t border-stroke pt-3">
+                  <p className="text-sm font-medium text-foreground">
+                    导航布局
+                  </p>
+                  <p className="text-[11px] text-text-tertiary">
+                    侧栏模式在左侧常驻主视图菜单与技能库目录树，深层级技能查看时可直达任意层级。
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { id: "top", label: "顶栏", icon: PanelTop },
+                        { id: "sidebar", label: "侧栏", icon: PanelLeft },
+                      ] as const
+                    ).map((opt) => {
+                      const Icon = opt.icon;
+                      const active = (navMode ?? "top") === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => onNavModeChange?.(opt.id)}
+                          className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors ${
+                            active
+                              ? "border-stroke-hi bg-glass-2 text-foreground"
+                              : "border-border text-text-secondary hover:border-stroke-hi hover:text-text-primary"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {opt.label}
+                          {active && (
+                            <Check className="ml-auto h-4 w-4 text-[var(--accent)]" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}

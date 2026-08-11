@@ -220,7 +220,7 @@ export function CommandSearch({
                           {it.sub}
                         </small>
                       </span>
-                      <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-tertiary">
+                      <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-2 py-[2px] text-[10.5px] text-text-tertiary">
                         {it.tag}
                       </span>
                     </div>

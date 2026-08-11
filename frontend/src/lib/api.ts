@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   isMockMode,
   MOCK_PACKS,
+  MOCK_INSTALLS,
   MOCK_RAW,
   MOCK_TOOLS,
   MOCK_LINKS,
@@ -62,6 +63,8 @@ export interface MaskedConfig {
   _has_key: boolean;
   /** 发布仓库配置（未设置为 null） */
   publish_repo: { local_path: string; remote_url: string } | null;
+  /** PLAN-09 P5：当前生效的下载/导入目录 */
+  download_dir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +107,16 @@ export function writeTranslation(params: {
 /** 加载脱敏配置 */
 export function loadConfig(): Promise<MaskedConfig> {
   return invoke<MaskedConfig>("load_config");
+}
+
+/** PLAN-09 P5：读取当前生效的下载/导入目录 */
+export function getDownloadDir(): Promise<string> {
+  return invoke<string>("get_download_dir");
+}
+
+/** PLAN-09 P5：保存自定义下载/导入目录（空串 = 恢复默认） */
+export function setDownloadDir(dir: string): Promise<void> {
+  return invoke("set_download_dir", { dir });
 }
 
 /** 保存 LLM 配置（v0.2 B5 收尾：tools 走 hub_*_tool 命令，不再经此通道） */
@@ -427,6 +440,8 @@ export interface PackInfo {
 /** 打包输入：source_path = SKILL.md 绝对路径 */
 export interface PackSkillInput {
   source_path: string;
+  /** 扫描结果的虚拟 skill_id（P10b 打包带译文时后端据此查译文） */
+  skill_id: string;
   name: string;
   description: string;
   description_zh: string;
@@ -527,13 +542,76 @@ export function packImport(path: string): Promise<PackInfo> {
   return invoke<PackInfo>("pack_import", { path });
 }
 
-/** 安装到 imported 库；返回安装的技能数 */
-export function packInstall(id: string): Promise<number> {
-  return invoke<number>("pack_install", { id });
+/** 新建【全新】文件夹位置：创建目录并注册为自定义根，返回工具 id。 */
+export function addFolderRoot(path: string): Promise<string> {
+  if (isMockMode()) {
+    const clean = path.trim();
+    if (!clean) return Promise.reject(new Error("路径为空"));
+    return Promise.resolve(`custom-${clean.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`);
+  }
+  return invoke<string>("add_folder_root", { path });
+}
+
+/** 安装部署预览结果（D6：deploy_root = <target>/skills） */
+export interface InstallPreview {
+  deploy_root: string;
+  skill_folders: string[];
+  conflicts: string[];
+  is_new_tool: boolean;
+}
+
+/** 安装预览：解析 pack + 冲突清单，不落盘（D2/D6） */
+export function packInstallPreview(id: string, targetDir: string): Promise<InstallPreview> {
+  if (isMockMode()) {
+    const pack = MOCK_PACKS.find((p) => p.id === id);
+    if (!pack) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    const deploy_root = `${targetDir.replace(/[\\/]+$/, "")}/skills`;
+    const fold = (Array.isArray(pack.skill_names) ? pack.skill_names : []);
+    const existing = MOCK_INSTALLS.get(deploy_root) ?? [];
+    return Promise.resolve({
+      deploy_root,
+      skill_folders: fold,
+      conflicts: fold.filter((f) => existing.includes(f)),
+      is_new_tool: !existing.length,
+    });
+  }
+  return invoke<InstallPreview>("pack_install_preview", { id, targetDir });
+}
+
+/** 安装提交：overwrite = 用户确认覆盖的同名 folder；其余冲突跳过。 */
+export function packInstallCommit(
+  id: string,
+  targetDir: string,
+  overwrite: string[]
+): Promise<number> {
+  if (isMockMode()) {
+    const pack = MOCK_PACKS.find((p) => p.id === id);
+    if (!pack) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    const deploy_root = `${targetDir.replace(/[\\/]+$/, "")}/skills`;
+    const fold = (Array.isArray(pack.skill_names) ? pack.skill_names : []);
+    const existing = MOCK_INSTALLS.get(deploy_root) ?? [];
+    const deployable = fold.filter(
+      (f) => !existing.includes(f) || overwrite.includes(f)
+    );
+    MOCK_INSTALLS.set(deploy_root, Array.from(new Set([...existing, ...deployable])));
+    return Promise.resolve(deployable.length);
+  }
+  return invoke<number>("pack_install_commit", { id, targetDir, overwrite });
 }
 
 export function packDelete(id: string): Promise<void> {
   return invoke("pack_delete", { id });
+}
+
+/** 重命名 Pack；返回更新后的信息 */
+export function packRename(id: string, name: string): Promise<PackInfo> {
+  if (isMockMode()) {
+    const info = MOCK_PACKS.find((p) => p.id === id);
+    if (!info) return Promise.reject(new Error(`Pack 不存在：${id}`));
+    info.name = name.trim();
+    return Promise.resolve(info);
+  }
+  return invoke<PackInfo>("pack_rename", { id, name });
 }
 
 // ---------------------------------------------------------------------------

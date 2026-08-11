@@ -10,6 +10,8 @@ import { Boxes, Package, FolderSymlink, PenLine, type LucideIcon } from "lucide-
  *
  * 渲染分发在 App.tsx 的 composition root（按 id 查 RENDERERS 表），
  * 入口位置（Tab / 顶栏按钮 / 详情页内）对视图实现透明。
+ *
+ * PLAN-10 P1：使用手册移出 Tab，改为右上角「关于」菜单入口的白皮书全屏页。
  */
 
 export type ViewId = "lib" | "packs" | "hub" | "create";

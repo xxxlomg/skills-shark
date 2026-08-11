@@ -1,74 +1,143 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type CSSProperties } from "react";
 import {
   ArrowLeft,
   Search,
   Folder,
   FolderOpen,
-  ChevronRight,
   Languages,
   Loader2,
+  PenLine,
+  Square,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { SkillCard } from "./SkillCard";
 import { LayoutToggle } from "./LayoutToggle";
 import { SectionHead } from "@/components/common/SectionHead";
-import { EmptyState } from "@/components/common/EmptyState";
+import { EmptyPanel } from "@/components/common/EmptyPanel";
 import { useBatchTranslate } from "@/hooks/useBatchTranslate";
 import type { Skill, LayoutMode } from "@/hooks/useSkills";
-import { collectionDisplayName } from "@/hooks/useSkills";
+import { collectionRelativeName, toolDisplayName } from "@/hooks/useSkills";
 
 interface CategoryViewProps {
   label: string;
   skills: Skill[];
+  /** PLAN-10 P2：仅展示指定合集（parent_collection），扁平渲染 */
+  collection?: string | null;
   layout: LayoutMode;
   onLayoutChange: (mode: LayoutMode) => void;
   onBack: () => void;
   onSkillClick: (skill: Skill) => void;
+  /** 点击合集文件夹 → 进入该文件夹（面包屑前进） */
+  onOpenCollection?: (label: string, collection: string | null) => void;
+  /** 文件夹内「创作」→ 跳转工作台并预选落点 */
+  onCreateIn?: (target: string) => void;
   onSettingsOpen?: () => void;
   onTranslateDone?: () => void;
-  /** 工具 id → 显示名（B4 徽标） */
-  toolNames?: Record<string, string>;
 }
 
-const PREVIEW_MAX = 3;
+/** 合集文件夹导航卡：与 SkillCard 同形的标准玻璃卡，点击整卡进入文件夹。 */
+function FolderNavCard({
+  name,
+  count,
+  index,
+  layout,
+  onClick,
+}: {
+  name: string;
+  count: number;
+  index: number;
+  layout: "grid" | "list";
+  onClick: () => void;
+}) {
+  const wrapStyle = { "--i": index } as CSSProperties;
+  if (layout === "list") {
+    return (
+      <div className="card-wrap" style={wrapStyle}>
+        <button
+          type="button"
+          onClick={onClick}
+          className="glass-card glass-card-hover card-glow relative flex w-full items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
+        >
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-brand opacity-85" />
+          <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-brand">
+            <Folder className="h-5 w-5" />
+          </span>
+          <div className="relative z-[1] min-w-0 flex-1">
+            <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
+              {name}
+            </h3>
+            <p className="font-mono text-[11px] text-text-tertiary">文件夹</p>
+          </div>
+          <span className="relative z-[1] shrink-0 rounded-md border border-stroke bg-glass-2 px-2 py-0.5 font-mono text-xs text-text-secondary">
+            {count}
+          </span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="card-wrap" style={wrapStyle}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="glass-card glass-card-hover card-deco card-glow relative flex h-full w-full flex-col overflow-hidden p-5 text-left"
+      >
+        <div className="relative z-[1] flex items-start justify-between gap-2">
+          <span className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-[13px] border border-stroke bg-glass-2 text-brand">
+            <Folder className="h-[22px] w-[22px]" />
+          </span>
+          <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-[10px] py-[3px] font-mono text-[12px] text-text-secondary">
+            {count}
+          </span>
+        </div>
+        <h3 className="relative z-[1] mt-4 truncate font-display text-[19px] font-semibold leading-snug text-text-primary">
+          {name}
+        </h3>
+        <p className="relative z-[1] mt-[3px] font-mono text-[12px] text-text-tertiary">
+          文件夹
+        </p>
+      </button>
+    </div>
+  );
+}
 
 export function CategoryView({
   label,
   skills,
+  collection,
   layout,
   onLayoutChange,
   onBack,
   onSkillClick,
+  onOpenCollection,
+  onCreateIn,
   onSettingsOpen,
   onTranslateDone,
-  toolNames,
 }: CategoryViewProps) {
   const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  // A1: 折叠过渡结束后才卸载子卡片 DOM，默认折叠态砍掉 ~90% 闲置 backdrop-filter 层
-  const [mounted, setMounted] = useState<Set<string>>(() => new Set());
-  const { batch, running, run } = useBatchTranslate({
+  const { batch, running, run, stop } = useBatchTranslate({
     onNeedSettings: onSettingsOpen,
     onDone: onTranslateDone,
   });
 
-  const toggleCollection = (c: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c);
-      else next.add(c);
-      return next;
-    });
-    // A1: 展开/收起都先标记已挂载；收起后由 onTransitionEnd 延迟卸载
-    setMounted((prev) => {
-      if (prev.has(c)) return prev;
-      return new Set(prev).add(c);
-    });
-  };
+  // PLAN-10 P2：collection 模式下只看该合集，扁平展示
+  const isScoped = Boolean(collection);
+  const scopedTitle = collection
+    ? collectionRelativeName(label, collection)
+    : label;
+
+  const base = useMemo(() => {
+    if (!collection) return skills;
+    return skills.filter((s) => s.parent_collection === collection);
+  }, [skills, collection]);
+
+  // 创作落点：优先用该目录下技能所属工具 id（与工作台落点选项 value 对齐），
+  // 兜底用 label。避免 scan_label 与 ToolInfo.name 不一致导致预选失败。
+  const createTarget = useMemo(() => {
+    const t = base.find(
+      (s) => s.tool_id && s.tool_id !== "authored" && s.tool_id !== "builtin",
+    );
+    return t?.tool_id ?? label;
+  }, [base, label]);
 
   // 合集稳定顺序（基于全量 skills 首次出现，搜索时不跳）
   const collectionOrder = useMemo(() => {
@@ -85,9 +154,9 @@ export function CategoryView({
   }, [skills]);
 
   const filtered = useMemo(() => {
-    if (!query) return skills;
+    if (!query) return base;
     const q = query.toLowerCase();
-    return skills.filter(
+    return base.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.title_zh.toLowerCase().includes(q) ||
@@ -95,7 +164,7 @@ export function CategoryView({
         s.description_zh.toLowerCase().includes(q) ||
         s.folder_name.toLowerCase().includes(q)
     );
-  }, [skills, query]);
+  }, [base, query]);
 
   // 分组（基于 filtered）
   const { indep, cmap } = useMemo(() => {
@@ -111,11 +180,8 @@ export function CategoryView({
     return { indep: indepArr, cmap: map };
   }, [filtered]);
 
-  const hasCollections = cmap.size > 0;
-  const showIndepHeader = indep.length > 0 && hasCollections;
-
-  const okCount = skills.filter((s) => s.has_translation).length;
-  const pendingCount = skills.length - okCount;
+  const okCount = base.filter((s) => s.has_translation).length;
+  const pendingCount = base.length - okCount;
   const hasUntranslated = pendingCount > 0;
 
   // 渲染一组 skills（grid / list 均由 SkillCard 承担）
@@ -128,7 +194,6 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="grid"
-            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}
@@ -141,7 +206,6 @@ export function CategoryView({
             skill={skill}
             index={offset + i}
             layout="list"
-            toolNames={toolNames}
             onClick={() => onSkillClick(skill)}
           />
         ))}
@@ -152,31 +216,59 @@ export function CategoryView({
     <div className="relative py-6">
       <button type="button" onClick={onBack} className="back-btn">
         <ArrowLeft className="h-[15px] w-[15px]" />
-        返回技能库
+        {collection ? `返回 ${toolDisplayName(label)}` : "返回技能库"}
       </button>
 
       <SectionHead
-        title={label}
-        subtitle={`${skills.length} 个技能 · ${okCount} 已翻译 · ${pendingCount} 待处理`}
+        title={toolDisplayName(scopedTitle)}
+        subtitle={`${base.length} 个技能 · ${okCount} 已翻译 · ${pendingCount} 待处理`}
       >
-        <button
-          type="button"
-          className="mbtn primary"
-          onClick={() => run(skills)}
-          disabled={running || !hasUntranslated}
-        >
-          {running ? (
-            <>
+        {onCreateIn && (
+          <button
+            type="button"
+            className="mbtn primary"
+            onClick={() => onCreateIn(createTarget)}
+            title={`在「${toolDisplayName(label)}」下创作技能`}
+          >
+            <PenLine className="h-3.5 w-3.5" />
+            创作
+          </button>
+        )}
+        {running ? (
+          <>
+            {/* 进度可观测：第几个 / 总数 / 当前技能名 */}
+            <button
+              type="button"
+              className="mbtn primary"
+              disabled
+              title={`当前正在翻译：${batch?.name ?? ""}`}
+            >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              翻译中 {batch?.current}/{batch?.total}
-            </>
-          ) : (
-            <>
-              <Languages className="h-3.5 w-3.5" />
-              批量翻译未译
-            </>
-          )}
-        </button>
+              <span className="max-w-[180px] truncate">
+                翻译中 {batch?.current}/{batch?.total} · {batch?.name}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="mbtn"
+              onClick={stop}
+              title="停止批量翻译（已完成的不受影响）"
+            >
+              <Square className="h-3.5 w-3.5" />
+              停止
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="mbtn primary"
+            onClick={() => run(base)}
+            disabled={!hasUntranslated}
+          >
+            <Languages className="h-3.5 w-3.5" />
+            批量翻译未译
+          </button>
+        )}
         <LayoutToggle value={layout} onChange={onLayoutChange} />
       </SectionHead>
 
@@ -194,139 +286,74 @@ export function CategoryView({
 
       {filtered.length === 0 ? (
         query ? (
-          <div className="py-12 text-center text-sm text-text-tertiary">
-            没有匹配「{query}」的技能
-          </div>
+          <EmptyPanel
+            icon={<Search className="h-7 w-7" />}
+            title={`没有匹配「${query}」的技能`}
+            description="换个关键词，或清除搜索条件再试试。"
+          />
         ) : (
-          <EmptyState />
+          <EmptyPanel
+            icon={<FolderOpen className="h-7 w-7" />}
+            title="这个分类还是空的"
+            description="导入技能，或从其他来源把技能放进这个分类。"
+          />
         )
+      ) : isScoped ? (
+        // 合集过滤视图扁平展示
+        <div>{renderSkills(filtered)}</div>
+      ) : layout === "grid" ? (
+        // 统一卡片：合集=文件夹卡（点击进入，面包屑前进）+ 独立技能卡，同一网格
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {collectionOrder.map((c, i) => {
+            const list = cmap.get(c);
+            if (!list || list.length === 0) return null;
+            return (
+              <FolderNavCard
+                key={`folder-${c}`}
+                name={collectionRelativeName(label, c)}
+                count={list.length}
+                index={i}
+                layout="grid"
+                onClick={() => onOpenCollection?.(label, c)}
+              />
+            );
+          })}
+          {indep.map((s, i) => (
+            <SkillCard
+              key={s.id}
+              skill={s}
+              index={collectionOrder.length + i}
+              layout="grid"
+              onClick={() => onSkillClick(s)}
+            />
+          ))}
+        </div>
       ) : (
-        <div className="space-y-6">
-          {/* 独立技能区 */}
-          {indep.length > 0 && (
-            <section>
-              {showIndepHeader && (
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="h-3 w-1 rounded-full bg-gradient-to-b from-brand to-cyan" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
-                    独立技能
-                  </span>
-                  <span className="text-xs tabular-nums text-text-tertiary/70">
-                    {indep.length}
-                  </span>
-                </div>
-              )}
-              {renderSkills(indep)}
-            </section>
-          )}
-
-          {/* 合集区 */}
-          {hasCollections && (
-            <section className="space-y-3">
-              {showIndepHeader && (
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="h-3 w-1 rounded-full bg-gradient-to-b from-brand/70 to-cyan/60" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
-                    技能合集
-                  </span>
-                </div>
-              )}
-
-              {collectionOrder.map((c) => {
-                const list = cmap.get(c);
-                if (!list || list.length === 0) return null;
-                // 搜索态：有匹配结果的合集强制展开，避免「搜得到却看不见」
-                const open = expanded.has(c) || query.trim().length > 0;
-                const display = collectionDisplayName(c);
-                const isNested = c !== display;
-                const previews = list.slice(0, PREVIEW_MAX);
-                const overflow = list.length - PREVIEW_MAX;
-
-                return (
-                  <div
-                    key={c}
-                    className={`glass-card overflow-hidden transition-colors ${
-                      open ? "border-stroke-hi" : ""
-                    }`}
-                  >
-                    <button
-                      onClick={() => toggleCollection(c)}
-                      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-glass-2/60"
-                      aria-expanded={open}
-                    >
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-stroke bg-glass-2 text-brand">
-                        {open ? (
-                          <FolderOpen className="h-4 w-4" />
-                        ) : (
-                          <Folder className="h-4 w-4" />
-                        )}
-                      </span>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">
-                            {display}
-                          </span>
-                        </TooltipTrigger>
-                        {isNested && (
-                          <TooltipContent side="top" align="start">
-                            {c}
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-
-                      <span className="hidden shrink-0 items-center gap-1 text-base sm:flex">
-                        {previews.map((s, i) => (
-                          <span key={i} className="opacity-80">
-                            {s.emoji || "🧩"}
-                          </span>
-                        ))}
-                        {overflow > 0 && (
-                          <span className="ml-0.5 font-mono text-[10px] text-text-tertiary">
-                            +{overflow}
-                          </span>
-                        )}
-                      </span>
-
-                      <span className="shrink-0 rounded-full border border-stroke bg-glass-2 px-2 py-0.5 font-mono text-xs text-text-secondary">
-                        {list.length}
-                      </span>
-
-                      <ChevronRight
-                        className={`h-4 w-4 shrink-0 text-text-tertiary transition-transform duration-300 ${
-                          open ? "rotate-90" : ""
-                        }`}
-                      />
-                    </button>
-
-                    <div
-                      className={`grid transition-all duration-300 ease-out ${
-                        open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                      }`}
-                      onTransitionEnd={(e) => {
-                        // A1: 收起动画播完后卸载子卡片 DOM（展开时 open=true 不触发）
-                        if (e.propertyName === "grid-template-rows" && !open) {
-                          setMounted((prev) => {
-                            const n = new Set(prev);
-                            n.delete(c);
-                            return n;
-                          });
-                        }
-                      }}
-                    >
-                      <div className="min-h-0 overflow-hidden">
-                        {(open || mounted.has(c)) && (
-                          <div className="border-t border-stroke/60 px-4 pb-4 pt-3">
-                            {renderSkills(list)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </section>
-          )}
+        // 统一卡片：列表态
+        <div className="flex flex-col gap-[10px]">
+          {collectionOrder.map((c, i) => {
+            const list = cmap.get(c);
+            if (!list || list.length === 0) return null;
+            return (
+              <FolderNavCard
+                key={`folder-${c}`}
+                name={collectionRelativeName(label, c)}
+                count={list.length}
+                index={i}
+                layout="list"
+                onClick={() => onOpenCollection?.(label, c)}
+              />
+            );
+          })}
+          {indep.map((s, i) => (
+            <SkillCard
+              key={s.id}
+              skill={s}
+              index={collectionOrder.length + i}
+              layout="list"
+              onClick={() => onSkillClick(s)}
+            />
+          ))}
         </div>
       )}
     </div>

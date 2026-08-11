@@ -2,16 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CircleHelp,
+  Code2,
   Columns2,
+  Copy,
   Eye,
   FolderTree,
   Loader2,
+  Maximize2,
+  Minimize2,
   PanelLeft,
   PenLine,
   Save,
   ScrollText,
   Settings,
   Sparkles,
+  StopCircle,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,7 +38,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Sheet,
   SheetContent,
@@ -80,6 +89,8 @@ import {
 interface AuthoringWorkbenchProps {
   skill: Skill | null; // null = 新建态
   skills: Skill[]; // 内容参考候选（全局扫描结果，按 scan_label 分组）
+  /** 新建态落点预选（从技能库「在当前目录下创作」进入时带上工具名/ID） */
+  initialLocation?: string | null;
   refresh: () => void;
   onOpenSettings: () => void;
   onExit: () => void;
@@ -112,7 +123,9 @@ function buildDesc(d: WbDraft): string {
 
 /** description 反解析（X4 回显）：先按中文约定「X。当Y时使用。」，
  *  再回退英文/双语约定「X. Use when Y.」（兼容存量）。命中 → purpose/triggers；未命中 → null。 */
-function reverseDesc(desc: string): { purpose: string; triggers: string } | null {
+function reverseDesc(
+  desc: string,
+): { purpose: string; triggers: string } | null {
   const t = desc.trim();
   // 中文约定：X。当Y时使用。 / X。当Y时。
   const zh = t.match(/^(.+?)。当(.+?)时(?:使用)?。?$/);
@@ -158,22 +171,48 @@ function StepBadge({ n }: { n: number }) {
 
 /** emoji 快选网格（X5），可再自定义输入。 */
 const COMMON_EMOJI = [
-  "✍️", "🧩", "🛠️", "🧪", "📦", "🔍", "🌐", "📊",
-  "🤖", "📝", "⚡", "🔧", "🧠", "🚀", "🗂️", "🔔",
-  "🎯", "📚", "🧮", "💾",
+  "✍️",
+  "🧩",
+  "🛠️",
+  "🧪",
+  "📦",
+  "🔍",
+  "🌐",
+  "📊",
+  "🤖",
+  "📝",
+  "⚡",
+  "🔧",
+  "🧠",
+  "🚀",
+  "🗂️",
+  "🔔",
+  "🎯",
+  "📚",
+  "🧮",
+  "💾",
 ];
 
 /** 写作准则（X6 问号悬浮内容）。 */
 const GUIDELINES = (
   <div className="flex flex-col gap-1">
-    <span>· description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用</span>
+    <span>
+      · description 一句话说清「做什么 + 何时用」——模型只凭它决定是否使用
+    </span>
     <span>· 正文祈使句书写，不用第二人称</span>
     <span>· 长资料拆到 references/，正文保持精简</span>
     <span>· name 用 hyphen-case，与目录名一致</span>
   </div>
 );
 
-export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onExit }: AuthoringWorkbenchProps) {
+export function AuthoringWorkbench({
+  skill,
+  skills,
+  initialLocation,
+  refresh,
+  onOpenSettings,
+  onExit,
+}: AuthoringWorkbenchProps) {
   const [current, setCurrent] = useState<Skill | null>(skill);
   const draftId = current?.id ?? "new";
 
@@ -189,11 +228,24 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
   const [confirmExit, setConfirmExit] = useState(false);
   const [refSkillId, setRefSkillId] = useState("");
   const [refContent, setRefContent] = useState("");
+  // 参考 pane：渲染/源码 视图切换 + 全屏预览（用户可全屏看、可复制 md 原文）
+  const [refView, setRefView] = useState<"render" | "raw">("render");
+  const [refFull, setRefFull] = useState(false);
+  // 中间编辑区可收起：收起后仅留左「我的描述」+ 右参考 pane
+  const [editorOpen, setEditorOpen] = useState(true);
+  // 编辑区全屏：覆盖层顶部保留完整工具栏（正文/附带资源 + 编辑/分栏/预览 + 还原）
+  const [editorFull, setEditorFull] = useState(false);
+  // 参考全屏视图：渲染 / 源码 / 分栏（渲染+源码左右并列）
+  const [refFullView, setRefFullView] = useState<"render" | "raw" | "split">(
+    "render",
+  );
   // X4：AI 创作（顶栏按钮 + Dialog + 右侧流式预览）
   const [aiOpen, setAiOpen] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
   const [stream, setStream] = useState("");
   const [streaming, setStreaming] = useState(false);
+  // 用户「停止生成」的中止控制器：挂到 ref，供按钮 + 卸载时调用
+  const aiAbortRef = useRef<AbortController | null>(null);
   const [streamDone, setStreamDone] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const [llmReady, setLlmReady] = useState(true);
@@ -260,6 +312,24 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       .catch(() => setTools([]));
   }, [current]);
 
+  // 落点预选：从技能库「在当前目录下创作」进入时，把 location 预选为对应工具。
+  // scan_label / tool_id 与 ToolInfo 的 id/name 可能不一致（如 claude ↔ claude-code），
+  // 故先精确匹配，再退化为归一化前缀匹配。
+  useEffect(() => {
+    if (current || !initialLocation) return;
+    const norm = (s: string) => s.toLowerCase().replace(/[\s_\-/\\]/g, "");
+    const n = norm(initialLocation);
+    if (!n) return;
+    const t =
+      tools.find((x) => x.id === initialLocation || x.name === initialLocation) ??
+      tools.find((x) => {
+        const a = norm(x.id);
+        const b = norm(x.name);
+        return a === n || b === n || a.startsWith(n) || b.startsWith(n);
+      });
+    if (t) setLocation(t.id);
+  }, [tools, initialLocation, current]);
+
   // 内容参考分组（全局 skills 按 scan_label）
   const refGroups = useMemo(() => {
     const m = new Map<string, Skill[]>();
@@ -287,7 +357,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
 
   const refName = useMemo(
     () => skills.find((s) => s.id === refSkillId)?.name ?? "",
-    [skills, refSkillId]
+    [skills, refSkillId],
   );
 
   // 60s 未保存淡入 AI 引导；保存成功重置计时
@@ -315,11 +385,15 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
     setStreaming(true);
     setStreamDone(false);
     setStream("");
+    // 新建中止控制器：用户点「停止」或组件卸载时 abort
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
     try {
       const { finishReason } = await generateSkillMdStream(
         aiTopic.trim(),
         draft,
-        (d) => setStream((s) => s + d)
+        (d) => setStream((s) => s + d),
+        controller.signal,
       );
       if (finishReason === "length") {
         toast.warning("模型输出被截断——换更短的主题重试");
@@ -327,11 +401,31 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         setStreamDone(true);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      // 用户主动停止：不是失败，保留已生成部分供预览
+      if (e instanceof DOMException && e.name === "AbortError") {
+        toast.info("已停止 AI 生成——已生成的部分保留在预览中");
+        setStreamDone(true);
+      } else {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setStreaming(false);
+      aiAbortRef.current = null;
     }
   };
+
+  // 点击「停止生成」
+  const handleStopAI = useCallback(() => {
+    aiAbortRef.current?.abort();
+  }, []);
+
+  // 组件卸载时中止未完成的 AI 生成，避免请求泄漏
+  useEffect(
+    () => () => {
+      aiAbortRef.current?.abort();
+    },
+    []
+  );
 
   // X4：应用到正文 + 表单回显（description 反解析）
   const applyStream = () => {
@@ -371,7 +465,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       });
       setDirtyAll(true);
     },
-    [draftId, setDirtyAll]
+    [draftId, setDirtyAll],
   );
 
   // Ctrl+S（仅 mount 期间）
@@ -404,7 +498,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         }
         let dir: string;
         if (location === "authored") {
-          const r = await skillNew({ name, description: desc, emoji: draft.emoji });
+          const r = await skillNew({
+            name,
+            description: desc,
+            emoji: draft.emoji,
+          });
           dir = r.skill_dir;
           // X5：恒写 SKILL.md（含 emoji），空 body 落占位，保证 emoji/description 落盘
           const bodyText = draft.body.trim()
@@ -415,7 +513,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             "SKILL.md",
             `---\nname: ${name}\ndescription: ${
               desc || "TODO: describe what this skill does and when to use it"
-            }\nemoji: ${yq(draft.emoji || "🧩")}\n---\n${bodyText}`
+            }\nemoji: ${yq(draft.emoji || "🧩")}\n---\n${bodyText}`,
           );
         } else {
           const r = await skillCommitDraft(location, {
@@ -433,12 +531,13 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         refresh();
         const all = await scanSkills();
         const found =
-          all.find((s) => s.skill_dir === dir) ?? all.find((s) => s.name === name);
+          all.find((s) => s.skill_dir === dir) ??
+          all.find((s) => s.name === name);
         if (found) {
           setCurrent(found);
           setStored(null);
           setOrigFm(
-            `name: ${found.name}\ndescription: ${found.description}\nemoji: ${found.emoji ?? "🧩"}`
+            `name: ${found.name}\ndescription: ${found.description}\nemoji: ${found.emoji ?? "🧩"}`,
           );
         }
       } else {
@@ -447,7 +546,7 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         await skillWriteFile(
           current.skill_dir,
           "SKILL.md",
-          `---\n${fm}\n---\n${draft.body}`
+          `---\n${fm}\n---\n${draft.body}`,
         );
         if (desc !== current.description) {
           await skillEditFrontmatter(current.skill_dir, [
@@ -489,14 +588,107 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         <MarkdownPreview content={draft.body} />
       </div>
     ),
-    [draft.body]
+    [draft.body],
   );
+
+  // 编辑区工具条（normal / fullscreen 共用；full 时把「全屏」换成「还原」）
+  const renderToolbar = (full: boolean) => (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-1">
+      <Button
+        variant={rightTab === "body" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 px-2.5 text-xs"
+        onClick={() => setRightTab("body")}
+      >
+        正文
+      </Button>
+      <Button
+        variant={rightTab === "files" ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 px-2.5 text-xs"
+        onClick={() => setRightTab("files")}
+      >
+        <FolderTree className="h-3 w-3" />
+        附带资源
+      </Button>
+      {rightTab === "body" && (
+        <div className="ml-2 flex flex-wrap items-center gap-1 border-l border-border/40 pl-2">
+          <Button
+            variant={preview === "edit" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("edit")}
+          >
+            编辑
+          </Button>
+          <Button
+            variant={preview === "split" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("split")}
+          >
+            <Columns2 className="h-3 w-3" />
+            分栏
+          </Button>
+          <Button
+            variant={preview === "preview" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            onClick={() => setPreview("preview")}
+          >
+            <Eye className="h-3 w-3" />
+            预览
+          </Button>
+        </div>
+      )}
+      <div className="flex-1" />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2.5 text-xs"
+        title={full ? "还原编辑区" : "全屏编辑区"}
+        onClick={() => setEditorFull((o) => !o)}
+      >
+        {full ? (
+          <Minimize2 className="h-3 w-3" />
+        ) : (
+          <Maximize2 className="h-3 w-3" />
+        )}
+        {full ? "还原" : "全屏"}
+      </Button>
+    </div>
+  );
+
+  // 编辑区内容（正文/附带资源），与工具条解耦，供普通态与全屏复用
+  const editorBody =
+    rightTab === "files" ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <FileTree skill={current} />
+      </div>
+    ) : (
+      <div
+        className={
+          preview === "split"
+            ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
+            : "flex min-h-0 flex-1 flex-col"
+        }
+      >
+        {preview !== "preview" && (
+          <textarea
+            value={draft.body}
+            onChange={(e) => patch({ body: e.target.value })}
+            className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
+          />
+        )}
+        {preview !== "edit" && previewPane}
+      </div>
+    );
 
   return (
     // R3-2：整页 h-dvh 列布局，页面不滚；pt-4(16)+顶栏 h-12(48)=64 → 抽屉 top-16 对齐
     <div className="flex h-dvh flex-col gap-3 py-4">
       {/* X1 顶栏：整页不滚后恒可见（保留 sticky 无害） */}
-      <div className="sticky top-0 z-40 flex h-12 shrink-0 items-center gap-3 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/40 bg-[var(--bg-0)]/85 px-3 py-1.5">
         <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回创作列表
@@ -511,6 +703,17 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         >
           <PanelLeft className="h-3.5 w-3.5" />
           我的描述
+        </Button>
+        {/* 中间编辑区收起/展开：收起后仅留描述 + 参考 */}
+        <Button
+          size="sm"
+          variant={editorOpen ? "secondary" : "ghost"}
+          aria-pressed={editorOpen}
+          title={editorOpen ? "收起编辑区（仅看描述与参考）" : "展开编辑区"}
+          onClick={() => setEditorOpen((o) => !o)}
+        >
+          <Columns2 className="h-3.5 w-3.5" />
+          编辑区
         </Button>
         <div className="h-4 w-px bg-border/60" />
         {/* X5 emoji 控件 */}
@@ -564,7 +767,9 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
               className="h-8 w-56 font-mono text-[13px]"
             />
             {nameInvalid && (
-              <span className="text-[11px] text-red-400">需小写字母数字 + 连字符</span>
+              <span className="text-[11px] text-red-400">
+                需小写字母数字 + 连字符
+              </span>
             )}
           </div>
         )}
@@ -591,7 +796,9 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         )}
         {/* X4 AI 创作按钮（保存按钮左侧） */}
         {aiHint && (
-          <span className="animate-fade-in text-[11px] text-primary">没灵感？试试 AI 创作</span>
+          <span className="animate-fade-in text-[11px] text-primary">
+            没灵感 ? 试试 AI 创作
+          </span>
         )}
         {llmReady ? (
           <Button
@@ -604,7 +811,10 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             AI 创作
           </Button>
         ) : (
-          <Tip side="bottom" label="未配置 LLM —— 点右侧齿轮到设置页填入 API Key">
+          <Tip
+            side="bottom"
+            label="未配置 LLM —— 点右侧齿轮到设置页填入 API Key"
+          >
             <Button size="sm" variant="secondary" disabled>
               <Sparkles className="h-3 w-3" />
               AI 创作
@@ -612,10 +822,19 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
           </Tip>
         )}
         {/* 设置入口（Topbar 沉浸隐藏后补偿，PLAN-08 §2.1） */}
-        <Button variant="ghost" size="sm" aria-label="设置" onClick={onOpenSettings}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="设置"
+          onClick={onOpenSettings}
+        >
           <Settings className="h-3.5 w-3.5" />
         </Button>
-        <Button size="sm" disabled={busy || nameInvalid} onClick={() => void save()}>
+        <Button
+          size="sm"
+          disabled={busy || nameInvalid}
+          onClick={() => void save()}
+        >
           {busy && <Loader2 className="h-3 w-3 animate-spin" />}
           <Save className="h-3 w-3" />
           保存
@@ -665,115 +884,123 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
         className={cn(
           // R5：relative 供抽屉 absolute 锚定；pl = 400(抽屉) + 16(右缝)；抽屉 left-0 与顶栏左缘同线
           "relative flex min-h-0 flex-1 gap-4 transition-[padding-left] duration-500 ease-in-out",
-          descOpen && "pl-[416px]"
+          descOpen && "pl-[416px]",
         )}
       >
-        {/* 编辑列（不再被参考/流式替换） */}
+        {/* 编辑列（不再被参考/流式替换；可整体收起） */}
+        {editorOpen && (
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {/* 工具条 tabs */}
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant={rightTab === "body" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setRightTab("body")}
-                >
-                  正文
-                </Button>
-                <Button
-                  variant={rightTab === "files" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setRightTab("files")}
-                >
-                  <FolderTree className="h-3 w-3" />
-                  附带资源
-                </Button>
-                {rightTab === "body" && (
-                  <div className="ml-2 flex items-center gap-1 border-l border-border/40 pl-2">
-                    <Button
-                      variant={preview === "edit" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("edit")}
-                    >
-                      编辑
-                    </Button>
-                    <Button
-                      variant={preview === "split" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("split")}
-                    >
-                      <Columns2 className="h-3 w-3" />
-                      分栏
-                    </Button>
-                    <Button
-                      variant={preview === "preview" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setPreview("preview")}
-                    >
-                      <Eye className="h-3 w-3" />
-                      预览
-                    </Button>
-                  </div>
-                )}
-              </div>
-              {rightTab === "files" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <FileTree skill={current} />
-                </div>
-              ) : (
-                <div
-                  className={
-                    preview === "split"
-                      ? "grid min-h-0 flex-1 gap-3 md:grid-cols-2"
-                      : "flex min-h-0 flex-1 flex-col"
-                  }
-                >
-                  {preview !== "preview" && (
-                    <textarea
-                      value={draft.body}
-                      onChange={(e) => patch({ body: e.target.value })}
-                      className="h-full min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-transparent p-3.5 font-mono text-[13px] leading-[1.7]"
-                    />
-                  )}
-                  {preview !== "edit" && previewPane}
-                </div>
-              )}
+          {renderToolbar(false)}
+          {editorBody}
         </div>
+        )}
 
         {/* 右侧辅助 pane（R3-3 并列不挤压；R3-2 内部滚动，页面不滚） */}
         {(refSkillId || streaming || streamDone) && (
-          <aside className="flex h-full min-h-0 w-[42%] max-w-[620px] shrink-0 flex-col gap-3">
+          <aside
+            className={cn(
+              "flex h-full min-h-0 shrink-0 flex-col gap-3",
+              editorOpen ? "w-[42%] max-w-[620px]" : "min-w-0 flex-1",
+            )}
+          >
             {refSkillId ? (
-              <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
-                <ScrollText className="h-3.5 w-3.5 text-primary" />
-                <span className="truncate">内容参考 · {refName} · 只读，不进草稿</span>
-                <div className="flex-1" />
+              // 参考头部：窄栏空间有限 → 动作全部收成纯图标按钮（悬停提示），
+              // 单行排布不换行，「关闭」不再被挤到第二行。
+              <div className="flex shrink-0 items-center gap-1 rounded-md border border-border/40 bg-glass-1 px-2 py-1.5 text-xs text-text-secondary">
+                <ScrollText className="h-3.5 w-3.5 shrink-0 text-primary" />
+                {/* 参考说明：圆圈问号悬停展示 tag */}
+                <Tip
+                  side="bottom"
+                  label={`内容参考 · ${refName} · 只读，不进草稿`}
+                >
+                  <button
+                    type="button"
+                    aria-label="参考说明"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-text-tertiary transition-colors hover:bg-glass-2 hover:text-text-primary"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
+                <div className="min-w-0 flex-1" />
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title="全屏预览参考"
+                  aria-label="全屏预览参考"
+                  onClick={() => setRefFull(true)}
+                >
+                  <Maximize2 className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title={refView === "render" ? "查看 md 源码" : "查看渲染"}
+                  aria-label={refView === "render" ? "查看源码" : "查看渲染"}
+                  onClick={() =>
+                    setRefView((v) => (v === "render" ? "raw" : "render"))
+                  }
+                >
+                  {refView === "render" ? (
+                    <Code2 className="h-3 w-3" />
+                  ) : (
+                    <Eye className="h-3 w-3" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0"
+                  title="复制 md 原文（方便抄表格等写法）"
+                  aria-label="复制参考源码"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText(refContent)
+                      .then(() => toast.success("已复制参考源码"));
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0 hover:text-destructive"
+                  title="关闭参考"
+                  aria-label="关闭参考"
                   onClick={() => setRefSkillId("")}
                 >
                   <X className="h-3 w-3" />
-                  关闭参考
                 </Button>
               </div>
             ) : (
-              <div className="flex shrink-0 items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 gap-y-1 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-text-secondary">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
                 <span>
-                  {streaming ? "AI 生成中… 流式预览（只读）" : "AI 生成完成——内容已流式预览，可应用到正文"}
+                  {streaming
+                    ? "AI 生成中… 流式预览（只读）"
+                    : "AI 生成完成——内容已流式预览，可应用到正文"}
                 </span>
                 <div className="flex-1" />
+                {streaming && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] !text-red-500 !border-red-400/60 hover:!bg-red-500/10"
+                    onClick={handleStopAI}
+                    title="停止生成（已生成部分保留在预览中）"
+                  >
+                    <StopCircle className="h-3 w-3" />
+                    停止
+                  </Button>
+                )}
                 {streamDone && (
                   <Button
                     size="sm"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => (draft.body.trim() ? setConfirmApply(true) : applyStream())}
+                    onClick={() =>
+                      draft.body.trim() ? setConfirmApply(true) : applyStream()
+                    }
                   >
                     应用到正文
                   </Button>
@@ -785,13 +1012,19 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
               ref={previewScrollRef}
               className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-4"
             >
-              <MarkdownPreview
-                content={
-                  refSkillId
-                    ? refContent || "（读取中…）"
-                    : stream + (streaming ? "\n▍" : "")
-                }
-              />
+              {refSkillId && refView === "raw" ? (
+                <pre className="whitespace-pre-wrap font-mono text-[12px] leading-[1.7] text-text-secondary">
+                  {refContent || "（读取中…）"}
+                </pre>
+              ) : (
+                <MarkdownPreview
+                  content={
+                    refSkillId
+                      ? refContent || "（读取中…）"
+                      : stream + (streaming ? "\n▍" : "")
+                  }
+                />
+              )}
             </div>
           </aside>
         )}
@@ -809,102 +1042,221 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             showCloseButton={false}
             // 推拉抽屉：点编辑区等外部不收起（复制正文不误触），仅顶栏按钮 / Esc 收起
             onInteractOutside={(e) => e.preventDefault()}
-            className="absolute bottom-0 left-0 top-0 flex w-[400px] flex-col rounded-2xl border p-0 shadow-xl sm:max-w-[400px]"
+            className="absolute bottom-0 left-0 top-0 flex w-[400px] flex-col rounded-lg border p-0 sm:max-w-[400px]"
           >
-          <SheetHeader className="flex-row items-center justify-between px-5 pb-1 pt-4">
-            <SheetTitle className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
-              <PenLine className="h-3.5 w-3.5 text-primary" />
-              我的描述
-            </SheetTitle>
-            <Tip side="bottom" label={GUIDELINES}>
-              <button
-                type="button"
-                aria-label="写作准则"
-                className="grid h-6 w-6 place-items-center rounded text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
-              >
-                <CircleHelp className="h-3.5 w-3.5" />
-              </button>
-            </Tip>
-          </SheetHeader>
-          <p className="px-5 text-[11px] text-text-tertiary">
-            回答两个问题——保存时自动生成 frontmatter description；AI 创作也只回显这两项。
-          </p>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-            {/* 做什么 */}
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <StepBadge n={1} />
-                <span className="text-xs font-medium text-text-primary">做什么</span>
-                <span className="text-[10px] text-red-400">*</span>
-              </div>
-              <textarea
-                value={draft.purpose}
-                onChange={(e) => patch({ purpose: e.target.value })}
-                placeholder="例：为 Spring Boot 项目生成规范的 changelog"
-                className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
-                rows={3}
-              />
-            </div>
-            {/* 何时用 */}
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
-                <StepBadge n={2} />
-                <span className="text-xs font-medium text-text-primary">何时用</span>
-                <span className="text-[10px] text-text-tertiary">每行一条</span>
-              </div>
-              <textarea
-                value={draft.triggers}
-                onChange={(e) => patch({ triggers: e.target.value })}
-                placeholder={"例：\n用户要求整理 release notes\n提交历史需要汇总成变更日志"}
-                className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
-                rows={5}
-              />
-            </div>
-            {/* 内容参考（底部） */}
-            <div className="mt-auto border-t border-border/40 pt-3">
-              <div className="flex items-center gap-2">
-                <ScrollText className="h-3.5 w-3.5 text-primary" />
-                <h4 className="text-xs font-semibold text-text-primary">内容参考</h4>
-              </div>
-              <p className="mt-1 text-[11px] text-text-tertiary">
-                看看成熟技能怎么写——只读，渲染在右侧辅助 pane，不进草稿。
-              </p>
-              <div className="mt-2">
-                <Select
-                  value={refSkillId === "" ? undefined : refSkillId}
-                  onValueChange={(v) => {
-                    setRefSkillId(v);
-                    setStream("");
-                    setStreamDone(false);
-                  }}
-                  disabled={streaming}
+            <SheetHeader className="flex-row items-center justify-between px-5 pb-1 pt-4">
+              <SheetTitle className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+                <PenLine className="h-3.5 w-3.5 text-primary" />
+                我的描述
+              </SheetTitle>
+              <Tip side="bottom" hoverOnly label={GUIDELINES}>
+                <button
+                  type="button"
+                  aria-label="写作准则"
+                  className="grid h-6 w-6 place-items-center rounded text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
                 >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue placeholder="选一个技能查看其 SKILL.md（右侧辅助 pane）" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {refGroups.map(([label, arr]) => (
-                      <SelectGroup key={label}>
-                        <SelectLabel>{label}</SelectLabel>
-                        {arr.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.emoji || "🧩"} {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <CircleHelp className="h-3.5 w-3.5" />
+                </button>
+              </Tip>
+            </SheetHeader>
+            <p className="px-5 text-[11px] text-text-tertiary">
+              回答两个问题——保存时自动生成 frontmatter description；AI
+              创作也只回显这两项。
+            </p>
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+              {/* 做什么 */}
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={1} />
+                  <span className="text-xs font-medium text-text-primary">
+                    做什么
+                  </span>
+                  <span className="text-[10px] text-red-400">*</span>
+                </div>
+                <textarea
+                  value={draft.purpose}
+                  onChange={(e) => patch({ purpose: e.target.value })}
+                  placeholder="例：为 Spring Boot 项目生成规范的 changelog"
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={3}
+                />
+              </div>
+              {/* 何时用 */}
+              <div>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StepBadge n={2} />
+                  <span className="text-xs font-medium text-text-primary">
+                    何时用
+                  </span>
+                  <span className="text-[10px] text-text-tertiary">
+                    每行一条
+                  </span>
+                </div>
+                <textarea
+                  value={draft.triggers}
+                  onChange={(e) => patch({ triggers: e.target.value })}
+                  placeholder={
+                    "例：\n用户要求整理 release notes\n提交历史需要汇总成变更日志"
+                  }
+                  className="w-full resize-none rounded-md border border-input bg-transparent p-2.5 text-xs leading-relaxed"
+                  rows={5}
+                />
+              </div>
+              {/* 内容参考（底部） */}
+              <div className="mt-auto border-t border-border/40 pt-3">
+                <div className="flex items-center gap-2">
+                  <ScrollText className="h-3.5 w-3.5 text-primary" />
+                  <h4 className="text-xs font-semibold text-text-primary">
+                    内容参考
+                  </h4>
+                </div>
+                <p className="mt-1 text-[11px] text-text-tertiary">
+                  看看成熟技能怎么写——只读，渲染在右侧辅助 pane，不进草稿。
+                </p>
+                <div className="mt-2">
+                  <Select
+                    value={refSkillId}
+                    onValueChange={(v) => {
+                      setRefSkillId(v);
+                      setStream("");
+                      setStreamDone(false);
+                    }}
+                    disabled={streaming}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue placeholder="选一个技能查看其 SKILL.md（右侧辅助 pane）" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {refGroups.map(([label, arr]) => (
+                        <SelectGroup key={label}>
+                          <SelectLabel>{label}</SelectLabel>
+                          {arr.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.emoji || "🧩"} {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-          </div>
           </SheetContent>
         </Sheet>
       )}
 
+      {/* 编辑区全屏：覆盖层顶部保留完整工具栏（正文/附带资源 + 编辑/分栏/预览 + 还原） */}
+      {editorFull && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-0)] p-4">
+          <div className="mb-3 shrink-0 rounded-md border border-border/40 bg-glass-1 px-2 py-1.5">
+            {renderToolbar(true)}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">{editorBody}</div>
+        </div>
+      )}
+
+      {/* 参考全屏预览：fixed 覆盖层，独立于主行布局——可全屏看、可切源码、可复制 */}
+      {refFull && refSkillId && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-0)] p-4">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2 gap-y-1 rounded-md border border-border/40 bg-glass-1 px-3 py-2 text-xs text-text-secondary">
+            <ScrollText className="h-3.5 w-3.5 text-primary" />
+            <Tip side="bottom" label={`内容参考 · ${refName} · 全屏预览`}>
+              <button
+                type="button"
+                aria-label="参考说明"
+                className="grid h-5 w-5 place-items-center rounded-full text-text-tertiary hover:bg-glass-2 hover:text-text-primary"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+              </button>
+            </Tip>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFull(false)}
+            >
+              <Minimize2 className="h-3 w-3" />
+              还原
+            </Button>
+            <Button
+              variant={refFullView === "raw" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("raw")}
+            >
+              <Code2 className="h-3 w-3" />
+              源码
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                void navigator.clipboard
+                  ?.writeText(refContent)
+                  .then(() => toast.success("已复制参考源码"));
+              }}
+            >
+              <Copy className="h-3 w-3" />
+              复制
+            </Button>
+            <Button
+              variant={refFullView === "split" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("split")}
+            >
+              <Columns2 className="h-3 w-3" />
+              分栏
+            </Button>
+            <Button
+              variant={refFullView === "render" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setRefFullView("render")}
+            >
+              <Eye className="h-3 w-3" />
+              预览
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => {
+                setRefFull(false);
+                setRefSkillId("");
+              }}
+            >
+              <X className="h-3 w-3" />
+              关闭参考
+            </Button>
+          </div>
+          {refFullView === "split" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-4">
+              <div className="min-h-0 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-6">
+                <MarkdownPreview content={refContent || "（读取中…）"} />
+              </div>
+              <pre className="min-h-0 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/40 bg-glass-1 p-6 font-mono text-[13px] leading-[1.7] text-text-secondary">
+                {refContent || "（读取中…）"}
+              </pre>
+            </div>
+          ) : refFullView === "raw" ? (
+            <pre className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/40 bg-glass-1 p-6 font-mono text-[13px] leading-[1.7] text-text-secondary">
+              {refContent || "（读取中…）"}
+            </pre>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border/40 bg-glass-1 p-6">
+              <MarkdownPreview content={refContent || "（读取中…）"} />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* X4 AI 创作 Dialog */}
       <Dialog open={aiOpen} onOpenChange={(o) => !o && setAiOpen(false)}>
-        <DialogContent className="max-w-md border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-md border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -927,7 +1279,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             <Button variant="ghost" size="sm" onClick={() => setAiOpen(false)}>
               取消
             </Button>
-            <Button size="sm" disabled={!aiTopic.trim() || streaming} onClick={() => void runAI()}>
+            <Button
+              size="sm"
+              disabled={!aiTopic.trim() || streaming}
+              onClick={() => void runAI()}
+            >
               <Sparkles className="h-3 w-3" />
               生成
             </Button>
@@ -936,8 +1292,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       </Dialog>
 
       {/* 应用 AI 结果确认（body 非空时） */}
-      <Dialog open={confirmApply} onOpenChange={(o) => !o && setConfirmApply(false)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+      <Dialog
+        open={confirmApply}
+        onOpenChange={(o) => !o && setConfirmApply(false)}
+      >
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>替换当前正文？</DialogTitle>
           </DialogHeader>
@@ -945,7 +1304,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             应用 AI 结果会替换当前 body（草稿兜底仍保留旧内容，可恢复）。
           </p>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmApply(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmApply(false)}
+            >
               取消
             </Button>
             <Button
@@ -962,8 +1325,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
       </Dialog>
 
       {/* 返回保护 */}
-      <Dialog open={confirmExit} onOpenChange={(o) => !o && setConfirmExit(false)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+      <Dialog
+        open={confirmExit}
+        onOpenChange={(o) => !o && setConfirmExit(false)}
+      >
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>有未保存改动</DialogTitle>
           </DialogHeader>
@@ -971,7 +1337,11 @@ export function AuthoringWorkbench({ skill, skills, refresh, onOpenSettings, onE
             草稿已自动兜底到本地——直接返回后，下次进入可恢复。
           </p>
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmExit(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmExit(false)}
+            >
               取消
             </Button>
             <Button variant="ghost" size="sm" onClick={onExit}>

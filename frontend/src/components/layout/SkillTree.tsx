@@ -1,0 +1,377 @@
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import type { Skill, SkillGroup } from "@/hooks/useSkills";
+import type { CreatedFolder } from "@/hooks/useCreatedFolders";
+import { collectionDisplayName } from "@/hooks/useSkills";
+
+/**
+ * PLAN-10 P2：技能库目录树（工具 → 合集 → 技能）
+ *
+ * 层级与 useSkills 分组一致：
+ *  - 工具 = scan_label（即首页文件夹卡片，config.rs 里 tool.name）
+ *  - 合集 = skill.parent_collection（工具内更深一层的目录；null 为散落根目录）
+ *  - 技能 = skill
+ *
+ * 点击直达：
+ *  - 工具节点 → 该工具的分类视图（CategoryView）
+ *  - 合集节点 → 该合集（collection 过滤）视图
+ *  - 技能节点 → 直接打开详情抽屉
+ *
+ * 展开状态持久化到 localStorage（sm:tree-open），当前所在分支自动强制展开。
+ */
+
+const TREE_OPEN_KEY = "sm:tree-open";
+
+interface CollNode {
+  key: string;
+  collection: string;
+  skills: Skill[];
+}
+
+interface ToolNode {
+  label: string;
+  count: number;
+  indep: Skill[];
+  colls: CollNode[];
+}
+
+interface SkillTreeProps {
+  groups: SkillGroup[];
+  /** 当前分类视图的工具（scan_label） */
+  currentLabel: string | null;
+  /** 当前分类视图的合集过滤（null = 整工具） */
+  currentCollection: string | null;
+  selectedSkillId: string | null;
+  onOpenCollection: (label: string, collection: string | null) => void;
+  onOpenSkill: (skill: Skill) => void;
+  /** 本会话新建的空文件夹（0 技能，扫描结果里不出现），补挂到树里 */
+  emptyFolders?: CreatedFolder[];
+}
+
+function readOpen(): Set<string> {
+  try {
+    const v = localStorage.getItem(TREE_OPEN_KEY);
+    if (!v) return new Set();
+    return new Set(v.split(",").filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** 供父组件（侧栏头部）调用的一键展开/收起句柄 */
+export interface SkillTreeHandle {
+  expandAll: () => void;
+  collapseAll: () => void;
+}
+
+export const SkillTree = forwardRef<SkillTreeHandle, SkillTreeProps>(
+  function SkillTree(
+    {
+      groups,
+      currentLabel,
+      currentCollection,
+      selectedSkillId,
+      onOpenCollection,
+      onOpenSkill,
+      emptyFolders,
+    },
+    ref
+  ) {
+  const [open, setOpen] = useState<Set<string>>(readOpen);
+
+  const toggle = useCallback((key: string) => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  // 点击菜单项时确保展开（即使已在该分支、useEffect 不再触发，也能重新展开）
+  const openBranch = useCallback((key: string) => {
+    setOpen((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev).add(key);
+      try {
+        localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  const tree = useMemo<ToolNode[]>(() => {
+    const tools: ToolNode[] = groups.map((g) => {
+      const collMap = new Map<string, Skill[]>();
+      const indep: Skill[] = [];
+      for (const s of g.skills) {
+        if (s.parent_collection) {
+          if (!collMap.has(s.parent_collection))
+            collMap.set(s.parent_collection, []);
+          collMap.get(s.parent_collection)!.push(s);
+        } else {
+          indep.push(s);
+        }
+      }
+      const colls: CollNode[] = [...collMap.entries()]
+        .map(([collection, skills]) => ({
+          key: `coll:${g.label}\u241f${collection}`,
+          collection,
+          skills,
+        }))
+        .sort((a, b) =>
+          collectionDisplayName(a.collection).localeCompare(
+            collectionDisplayName(b.collection)
+          )
+        );
+      return { label: g.label, count: g.skills.length, indep, colls };
+    });
+    // 合并本会话新建的空文件夹（0 技能扫描结果里不出现，这里补上）
+    for (const f of emptyFolders ?? []) {
+      let tool = tools.find((t) => t.label === f.label);
+      if (!tool) {
+        tool = { label: f.label, count: 0, indep: [], colls: [] };
+        tools.push(tool);
+      }
+      if (
+        f.collection !== null &&
+        !tool.colls.some((c) => c.collection === f.collection)
+      ) {
+        tool.colls.push({
+          key: `coll:${f.label}\u241f${f.collection}`,
+          collection: f.collection,
+          skills: [],
+        });
+        tool.colls.sort((a, b) =>
+          collectionDisplayName(a.collection).localeCompare(
+            collectionDisplayName(b.collection)
+          )
+        );
+      }
+    }
+    return tools;
+  }, [groups, emptyFolders]);
+
+  // 当前所在分支：导航到时自动展开一次（可读性优先），
+  // 之后允许用户手动折叠——不再每次渲染强制展开，
+  // 修复「展开A→展开B→收起A失效」（active 分支被 isOpen 强制撑开）。
+  const activeToolKey = currentLabel ? `tool:${currentLabel}` : null;
+  const activeCollKey =
+    currentLabel && currentCollection
+      ? `coll:${currentLabel}\u241f${currentCollection}`
+      : null;
+
+  // 导航到某分支时把它加进 open 集（仅在被导航的那次生效，不覆盖后续手动折叠）
+  useEffect(() => {
+    if (!activeToolKey && !activeCollKey) return;
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (activeToolKey) next.add(activeToolKey);
+      if (activeCollKey) next.add(activeCollKey);
+      try {
+        localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [activeToolKey, activeCollKey]);
+
+  const isOpen = (key: string) => open.has(key);
+
+  /** 一键展开全部（工具 + 合集全进 open 集） */
+  const expandAll = useCallback(() => {
+    const next = new Set<string>();
+    for (const t of tree) {
+      next.add(`tool:${t.label}`);
+      for (const c of t.colls) next.add(c.key);
+    }
+    setOpen(next);
+    try {
+      localStorage.setItem(TREE_OPEN_KEY, [...next].join(","));
+    } catch {
+      /* ignore */
+    }
+  }, [tree]);
+
+  /** 一键收起全部（清空 open 集） */
+  const collapseAll = useCallback(() => {
+    setOpen(new Set());
+    try {
+      localStorage.setItem(TREE_OPEN_KEY, "");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // 暴露给父组件（侧栏头部的紧凑展开/收起控件）
+  useImperativeHandle(ref, () => ({ expandAll, collapseAll }), [
+    expandAll,
+    collapseAll,
+  ]);
+
+  const skillActive = (id: string) => id === selectedSkillId;
+
+  const renderSkill = (skill: Skill) => {
+    const active = skillActive(skill.id);
+    return (
+      <button
+        key={`s:${skill.id}`}
+        type="button"
+        onClick={() => onOpenSkill(skill)}
+        className={`flex w-full min-w-0 items-center gap-1.5 rounded-md py-[3px] pr-1.5 pl-2 text-left text-[14px] transition-colors ${
+          active
+            ? "bg-brand/10 font-medium text-brand"
+            : "text-text-secondary hover:bg-glass-2 hover:text-text-primary"
+        }`}
+      >
+        <span className="w-[14px] shrink-0 text-center text-[11px]">
+          {skill.emoji || "🧩"}
+        </span>
+        <span className="truncate">{skill.title_zh || skill.name}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="space-y-0.5">
+      {tree.map((tool) => {
+        const toolKey = `tool:${tool.label}`;
+        const openTool = isOpen(toolKey);
+        const toolActive = currentLabel === tool.label;
+        const hasChildren = tool.indep.length > 0 || tool.colls.length > 0;
+
+        return (
+          <div key={toolKey}>
+            {/* 工具节点 */}
+            <div
+              className={`flex items-center gap-0.5 rounded-md transition-colors ${
+                toolActive ? "bg-glass-2" : "hover:bg-glass-2/60"
+              }`}
+            >
+              <button
+                type="button"
+                aria-label={openTool ? "收起" : "展开"}
+                onClick={() => toggle(toolKey)}
+                className="grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-colors hover:text-text-primary"
+              >
+                {openTool ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openBranch(toolKey);
+                  onOpenCollection(tool.label, null);
+                }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-1.5 text-left"
+              >
+                <Folder
+                  className={`h-3.5 w-3.5 shrink-0 ${
+                    toolActive ? "text-brand" : "text-text-tertiary"
+                  }`}
+                />
+                <span
+                  className={`truncate text-[14px] ${
+                    toolActive
+                      ? "font-semibold text-text-primary"
+                      : "font-medium text-text-secondary"
+                  }`}
+                >
+                  {tool.label}
+                </span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-text-tertiary">
+                  {tool.count}
+                </span>
+              </button>
+            </div>
+
+            {/* 子节点 */}
+            {openTool && hasChildren && (
+              <div className="ml-[9px] space-y-0.5 border-l border-stroke/50 pl-[7px]">
+                {tool.indep.map(renderSkill)}
+                {tool.colls.map((coll) => {
+                  const openColl = isOpen(coll.key);
+                  const collActive =
+                    currentCollection === coll.collection &&
+                    currentLabel === tool.label;
+                  return (
+                    <div key={coll.key}>
+                      <div
+                        className={`flex items-center gap-0.5 rounded-md transition-colors ${
+                          collActive ? "bg-glass-2" : "hover:bg-glass-2/60"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          aria-label={openColl ? "收起" : "展开"}
+                          onClick={() => toggle(coll.key)}
+                          className="grid h-[22px] w-[18px] shrink-0 place-items-center text-text-tertiary transition-colors hover:text-text-primary"
+                        >
+                          {openColl ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openBranch(coll.key);
+                            onOpenCollection(tool.label, coll.collection);
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-1.5 text-left"
+                        >
+                          <FolderOpen
+                            className={`h-3.5 w-3.5 shrink-0 ${
+                              collActive ? "text-brand" : "text-text-tertiary"
+                            }`}
+                          />
+                          <span
+                            className={`truncate text-[13px] ${
+                              collActive
+                                ? "font-semibold text-text-primary"
+                                : "text-text-secondary"
+                            }`}
+                          >
+                            {collectionDisplayName(coll.collection)}
+                          </span>
+                          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-tertiary">
+                            {coll.skills.length}
+                          </span>
+                        </button>
+                      </div>
+                      {openColl && (
+                        <div className="space-y-0.5 pt-0.5">
+                          {coll.skills.map(renderSkill)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+  }
+);

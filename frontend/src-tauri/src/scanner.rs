@@ -200,11 +200,23 @@ fn extract_emoji(text: &str) -> Option<String> {
 
 const MAX_SCAN_DEPTH: usize = 3;
 
+/// 归一化绝对路径（best-effort canonicalize，失败回退原路径）。
+/// 用于 disjoint：扫描根与遍历节点统一到同一形式再比较。
+fn norm_abs(p: &Path) -> std::path::PathBuf {
+    fs::canonicalize(p).unwrap_or_else(|_| {
+        // Windows 下统一斜杠，避免大小写/尾斜杠差异
+        let s = p.to_string_lossy().replace('\\', "/");
+        std::path::PathBuf::from(s.trim_end_matches('/'))
+    })
+}
+
 /// 递归扫描目录，收集含 SKILL.md 的子目录。
 ///
 /// - `depth` 从 1 开始（base 的直接子目录 = depth 1）。
 /// - `collection` 表示「当前 dir 作为合集容器时的中间路径」。
 ///   base 调用时为 None；进入一个无 SKILL.md 的子目录后，该子目录名成为合集名。
+/// - `skip_roots` = 全局扫描根本集合（disjoint, D7）。当某个合集容器本身就是
+///   另一条扫描根时，祖先根不再下钻（该子树由内根独立扫描），避免双身份。
 fn scan_dir_recursive(
     dir: &Path,
     depth: usize,
@@ -213,6 +225,7 @@ fn scan_dir_recursive(
     tool_id: &str,
     collection: Option<String>,
     translation_meta: &HashMap<String, translations::TranslationMeta>,
+    skip_roots: &std::collections::HashSet<std::path::PathBuf>,
     skills: &mut Vec<Skill>,
     seen_ids: &mut std::collections::HashSet<String>,
     rekeys: &mut Vec<(String, String)>,
@@ -255,7 +268,12 @@ fn scan_dir_recursive(
                 rekeys,
             );
         } else {
-            // 无 SKILL.md → 该目录是合集容器，递归下一层
+            // 无 SKILL.md → 该目录是合集容器，递归下一层。
+            // disjoint(D7)：若该容器本身是另一条扫描根，则祖先根不再下钻，
+            // 该子树由内根独立扫描（避免双身份）。
+            if skip_roots.contains(&norm_abs(&child)) {
+                continue;
+            }
             let next_collection = match &collection {
                 None => Some(folder_name),
                 Some(c) => Some(format!("{}/{}", c, folder_name)),
@@ -268,6 +286,7 @@ fn scan_dir_recursive(
                 tool_id,
                 next_collection,
                 translation_meta,
+                skip_roots,
                 skills,
                 seen_ids,
                 rekeys,
@@ -565,6 +584,45 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// D7 disjoint：嵌套扫描根不双身份。祖先根遍历到嵌套根边界停止下钻，
+    /// 内根独立扫描 → 内容只归最内层根，归属 = 用户选定的最内层模块。
+    #[test]
+    fn nested_scan_roots_are_disjoint() {
+        let root = tmp_root("disjoint");
+        let outer = root.join("skills"); // 工具 b
+        let inner = outer.join("c").join("skills"); // 工具 c（嵌套于 outer 下）
+        make_skill(&outer, "outer-only");
+        let inner_skill = inner.join("some-skill");
+        fs::create_dir_all(&inner_skill).unwrap();
+        fs::write(
+            inner_skill.join("SKILL.md"),
+            "---\nname: some-skill\ndescription: nested\n---\nb",
+        )
+        .unwrap();
+
+        let skills = live(scan_all_skills(&[
+            target(&outer, "b", "B"),
+            target(&inner, "c", "C"),
+        ]));
+        // outer-only 归 b；some-skill 只归最内层 c，不产生 b|c/skills/some-skill
+        assert!(skills.iter().any(|s| s.id == "b|outer-only"));
+        assert!(
+            skills.iter().any(|s| s.id == "c|some-skill"),
+            "内根独立产出 some-skill: {:?}",
+            skills.iter().map(|s| &s.id).collect::<Vec<_>>()
+        );
+        assert!(
+            !skills.iter().any(|s| s.id == "b|c/skills/some-skill"),
+            "祖先根不得下钻进嵌套根: {:?}",
+            skills.iter().map(|s| &s.id).collect::<Vec<_>>()
+        );
+        // some-skill 归属最内层 c，parent_collection 为空
+        let inner_skill_rec = skills.iter().find(|s| s.id == "c|some-skill").unwrap();
+        assert_eq!(inner_skill_rec.parent_collection, None);
+        assert!(inner_skill_rec.is_representative);
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn hub_linked_junction_detected_and_repped() {
         let root = tmp_root("junction");
@@ -604,6 +662,65 @@ mod tests {
         assert!(origin.is_representative);
         assert!(!linked.is_representative);
         let _ = junction::delete(tgt_tool.join("shared-skill"));
+        let _ = fs::remove_dir_all(&root);
+        assert!(!link.id.is_empty());
+    }
+
+    /// P8 反向场景：源工具在扫描序后面（codex 真源 + claude junction 落点）。
+    /// 旧逻辑按扫描序取首个为代表，claude junction 会抢占代表位导致 codex 真源被隐藏。
+    /// 修复后 junction 落点恒不为代表，真源保留。
+    #[test]
+    fn hub_linked_rep_priority_reverse_source_later() {
+        let root = tmp_root("junction-rev");
+        let tgt_tool = root.join("claude"); // 落点工具（扫描序前）
+        let src_tool = root.join("codex"); // 出处工具（扫描序后）
+        fs::create_dir_all(&src_tool).unwrap();
+        fs::create_dir_all(&tgt_tool).unwrap();
+        make_skill(&src_tool, "image-gen");
+        make_skill(&tgt_tool, "native-skill");
+
+        // 在 claude 侧建 junction，指向 codex 真源 image-gen
+        let link = crate::hub::link_skill_to_dir(
+            &root.join("data"),
+            &src_tool.join("image-gen"),
+            &tgt_tool,
+            "claude-code",
+            crate::hub::LinkMode::Link,
+        )
+        .unwrap();
+
+        // 扫描顺序：claude（junction 落点）在前，codex（真源）在后 —— 反向场景
+        let skills = live(scan_all_skills(&[
+            target(&tgt_tool, "claude-code", "Claude Code"),
+            target(&src_tool, "codex", "Codex CLI"),
+        ]));
+        assert_eq!(skills.len(), 3);
+
+        let junction = skills
+            .iter()
+            .find(|s| s.id == "claude-code|image-gen")
+            .unwrap();
+        assert!(junction.hub_linked, "claude 侧 junction 落点必须被识别");
+        assert!(
+            !junction.is_representative,
+            "junction 落点恒不为代表，即使扫描序在前"
+        );
+
+        let origin = skills
+            .iter()
+            .find(|s| s.id == "codex|image-gen")
+            .unwrap();
+        assert!(
+            origin.is_representative,
+            "真源（codex）必须为代表，技能库不被折叠"
+        );
+        assert_eq!(
+            origin.other_sources,
+            vec!["claude-code".to_string()],
+            "落点作为 other_sources 跟随真源"
+        );
+
+        let _ = junction::delete(tgt_tool.join("image-gen"));
         let _ = fs::remove_dir_all(&root);
         assert!(!link.id.is_empty());
     }
@@ -667,6 +784,13 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut rekeys: Vec<(String, String)> = Vec::new();
 
+    // disjoint 扫描根集合：所有扫描根（跨工具）的归一化绝对路径。
+    // 祖先根遍历到某条嵌套根边界时停止下钻（scan_dir_recursive 内跳过）。
+    let skip_roots: std::collections::HashSet<std::path::PathBuf> = targets
+        .iter()
+        .map(|t| norm_abs(Path::new(&t.path)))
+        .collect();
+
     for t in targets {
         let base = Path::new(&t.path);
         if !base.is_dir() {
@@ -682,6 +806,7 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
             &t.tool_id,
             None,
             &translation_meta,
+            &skip_roots,
             &mut skills,
             &mut seen_ids,
             &mut rekeys,
@@ -701,21 +826,38 @@ pub fn scan_all_skills(targets: &[ScanTarget]) -> Vec<Skill> {
     // builtin → 注册表 → 自定义 → 导入）首个为代表。非代表副本保留在输出中
     // （sync_deleted 依赖全量 id，防止误杀其译文），前端按 is_representative 折叠。
     // 仅跨工具去重：同工具内不同合集的同名目录是不同技能，不折叠。
+    //
+    // P8 修正：hub junction（重解析点）落点是「引用副本」，不是真正出处。
+    // 若落点工具排在源工具前面（如 claude-code 排在 codex 前），旧逻辑会让
+    // junction 落点抢占代表位，真正的源被前端 is_representative 折叠隐藏
+    // （表现为「codex 技能库的 image-gen 不见了」）。故：
+    //   • hub_linked=true 的落点恒不为代表（只要同组跨工具存在非 junction 真源）；
+    //   • 真源之间才按扫描序决胜。
     for i in 0..skills.len() {
-        let mut earlier_rep: Option<usize> = None;
+        let mut earlier_real_rep: Option<usize> = None;
         let mut others: Vec<String> = Vec::new();
+        let mut has_real_source = false; // 同组跨工具是否存在非 junction 真源
         for j in 0..skills.len() {
             if j == i || skills[j].folder_name != skills[i].folder_name {
                 continue;
             }
             if skills[j].tool_id != skills[i].tool_id {
-                if j < i && earlier_rep.is_none() {
-                    earlier_rep = Some(j);
+                // junction 落点不占代表位、也不计为真源
+                if !skills[j].hub_linked && j < i && earlier_real_rep.is_none() {
+                    earlier_real_rep = Some(j);
+                }
+                if !skills[j].hub_linked {
+                    has_real_source = true;
                 }
                 others.push(skills[j].tool_id.clone());
             }
         }
-        skills[i].is_representative = earlier_rep.is_none();
+        let rep = if skills[i].hub_linked {
+            earlier_real_rep.is_none() && !has_real_source
+        } else {
+            earlier_real_rep.is_none()
+        };
+        skills[i].is_representative = rep;
         skills[i].other_sources = others;
     }
 

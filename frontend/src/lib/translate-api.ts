@@ -58,7 +58,9 @@ export async function translateSkill(
   rawContent: string,
   sourcePath: string,
   scanLabel: string,
-  onProgress?: (fullSoFar: string, chunkIndex: number, totalChunks: number) => void
+  onProgress?: (fullSoFar: string, chunkIndex: number, totalChunks: number) => void,
+  /** 用户点「停止翻译」时 abort；分块间与块内 LLM 调用都会响应 */
+  abortSignal?: AbortSignal
 ): Promise<TranslateResult> {
   const config = requireLLMConfig();
 
@@ -68,6 +70,11 @@ export async function translateSkill(
   let completed = "";
 
   for (let i = 0; i < chunks.length; i++) {
+    // 分块间隙：用户已点停止 → 立即中止，不进下一块
+    if (abortSignal?.aborted) {
+      const e = new DOMException("翻译已取消", "AbortError");
+      throw e;
+    }
     const prompt = buildTranslatePrompt(chunks[i]);
     let buffer = "";
     const { text: translated, finishReason, reasoningChunks } =
@@ -79,7 +86,8 @@ export async function translateSkill(
         (delta) => {
           buffer += delta;
           onProgress?.(completed + buffer, i, chunks.length);
-        }
+        },
+        abortSignal
       );
     // 防御：拒绝「HTTP 200 但空译文」的假成功（此前会静默写入空翻译）
     if (!translated.trim()) {

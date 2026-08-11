@@ -1,5 +1,5 @@
 import { memo, type CSSProperties } from "react";
-import { Check, FolderSymlink } from "lucide-react";
+import { FolderSymlink } from "lucide-react";
 import type { Skill } from "@/hooks/useSkills";
 import { StatusBadge } from "./StatusBadge";
 
@@ -7,34 +7,13 @@ interface SkillCardProps {
   skill: Skill;
   index: number;
   layout: "grid" | "list";
-  /** 工具注册表 id → 显示名（B4 徽标用；缺省回退原始 id） */
-  toolNames?: Record<string, string>;
   onClick: () => void;
-}
-
-/** B4 installations 徽标：同名技能装于多个工具时，每个出处一枚 ✓ 徽标 */
-function InstallBadges({ skill, toolNames }: { skill: Skill; toolNames?: Record<string, string> }) {
-  if (skill.other_sources.length === 0) return null;
-  const sources = [skill.tool_id, ...skill.other_sources];
-  return (
-    <span className="flex flex-wrap items-center gap-1">
-      {sources.map((t) => (
-        <span
-          key={t}
-          className="inline-flex items-center gap-0.5 rounded border border-stroke bg-glass-2 px-1.5 py-px text-[10px] text-text-tertiary"
-        >
-          <Check aria-hidden className="h-2.5 w-2.5 text-green-500" />
-          {toolNames?.[t] ?? t}
-        </span>
-      ))}
-    </span>
-  );
 }
 
 /**
  * 技能卡片：网格态为竖排玻璃卡（顶部装饰条），列表态为横排玻璃行（左侧竖条）。
  */
-export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNames, onClick }: SkillCardProps) {
+export const SkillCard = memo(function SkillCard({ skill, index, layout, onClick }: SkillCardProps) {
   const displayName = skill.title_zh || skill.name;
   const wrapStyle = { "--i": index } as CSSProperties;
 
@@ -47,7 +26,7 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
           className="glass-card glass-card-hover card-glow relative flex w-full items-center gap-4 overflow-hidden px-[18px] py-[14px] text-left"
         >
           {/* 列表态：左侧竖向装饰条 */}
-          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-gradient-to-b from-brand to-cyan opacity-85" />
+          <span className="absolute left-0 top-[20%] z-[1] h-[60%] w-[3px] rounded-r-[4px] bg-brand opacity-85" />
           <span className="relative z-[1] grid h-[42px] w-[42px] shrink-0 place-items-center rounded-[12px] border border-stroke bg-glass-2 text-[20px]">
             {skill.emoji || "🧩"}
           </span>
@@ -68,11 +47,6 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
               <span className="mt-1 inline-flex items-center gap-1 rounded border border-brand/40 bg-brand/10 px-1.5 py-px text-[10px] text-brand">
                 ✍️ authored
               </span>
-            )}
-            {skill.other_sources.length > 0 && (
-              <div className="mt-1">
-                <InstallBadges skill={skill} toolNames={toolNames} />
-              </div>
             )}
           </div>
           <div className="relative z-[1] shrink-0">
@@ -113,11 +87,6 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
             ✍️ authored
           </span>
         )}
-        {skill.other_sources.length > 0 && (
-          <div className="relative z-[1] mt-2">
-            <InstallBadges skill={skill} toolNames={toolNames} />
-          </div>
-        )}
         <p className="relative z-[1] mt-[10px] line-clamp-2 text-[12.5px] leading-relaxed text-text-secondary">
           {skill.description_zh || skill.description || "暂无描述"}
         </p>
@@ -128,6 +97,5 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, toolNam
   // 忽略 onClick：闭包仅捕获稳定 skill + 父级稳定回调，同 skill 下行为等价
   prev.skill === next.skill &&
   prev.index === next.index &&
-  prev.layout === next.layout &&
-  prev.toolNames === next.toolNames
+  prev.layout === next.layout
 );

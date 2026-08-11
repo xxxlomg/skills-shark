@@ -223,7 +223,7 @@ export function FileTree({ skill }: FileTreeProps) {
 
       {/* 查看 */}
       <Dialog open={viewRel !== null} onOpenChange={(o) => !o && setViewRel(null)}>
-        <DialogContent className="max-w-2xl border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-2xl border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle className="font-mono text-sm">{viewRel}</DialogTitle>
           </DialogHeader>
@@ -235,7 +235,7 @@ export function FileTree({ skill }: FileTreeProps) {
 
       {/* 删除确认 */}
       <Dialog open={delRel !== null} onOpenChange={(o) => !o && setDelRel(null)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>删除 {delRel}？</DialogTitle>
           </DialogHeader>
@@ -253,7 +253,7 @@ export function FileTree({ skill }: FileTreeProps) {
 
       {/* 新建 */}
       <Dialog open={newOpen} onOpenChange={(o) => !o && setNewOpen(false)}>
-        <DialogContent className="max-w-sm border-border/60 bg-card/95 backdrop-blur-xl">
+        <DialogContent className="max-w-sm border-border/60 bg-card">
           <DialogHeader>
             <DialogTitle>新建附带文件</DialogTitle>
           </DialogHeader>

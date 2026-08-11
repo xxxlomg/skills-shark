@@ -7,7 +7,8 @@ import {
   Languages,
   Loader2,
   FolderSymlink,
-  Save,
+  StopCircle,
+  PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -21,15 +22,12 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/common/MarkdownRenderer";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { ValidationBadges } from "@/components/skill/ValidationBadges";
 import { parseBilingual, type BilingualContent } from "@/lib/bilingual";
 import {
   translateSkill,
   loadTranslation,
 } from "@/lib/translate-api";
-import { readSkillFile, skillEditFrontmatter } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { readSkillFile } from "@/lib/api";
 import { loadLLMConfig } from "@/lib/llm-config";
 import type { Skill } from "@/hooks/useSkills";
 
@@ -43,10 +41,8 @@ interface DetailSheetProps {
   onTranslateDone?: () => void;
   /** 引用到其他工具（PLAN-06 §2.8，B5） */
   onLinkSkill?: (skill: Skill) => void;
-  /** 工具 id → 显示名（B4 徽标用；缺省回退原始 id） */
-  toolNames?: Record<string, string>;
-  /** C10：frontmatter 编辑后刷新列表 */
-  onEdited?: () => void;
+  /** 打开创作工作台编辑存量技能 */
+  onEdit?: (skill: Skill) => void;
 }
 
 export function DetailSheet({
@@ -56,8 +52,7 @@ export function DetailSheet({
   onSettingsOpen,
   onTranslateDone,
   onLinkSkill,
-  toolNames,
-  onEdited,
+  onEdit,
 }: DetailSheetProps) {
   const [view, setView] = useState<ViewMode>("en");
   const [bilingual, setBilingual] = useState<BilingualContent | null>(null);
@@ -78,6 +73,8 @@ export function DetailSheet({
   } | null>(null);
   // 防御锁：杜绝翻译重入（连点 / effect 误触发）
   const translatingRef = useRef(false);
+  // 用户「停止翻译」的中止控制器：挂到 abortRef，供按钮 + 卸载时调用
+  const translateAbortRef = useRef<AbortController | null>(null);
   // 流式节流：delta 高频到达，限频 ~10fps（100ms）。
   // setTimeout 节流（首帧立即、尾帧必达）：旧 rAF 时间闸在被跳过时
   // 不补调度，导致突发到达/流末尾内容永远不落地（流式不渲染的根因）。
@@ -112,6 +109,8 @@ export function DetailSheet({
   useEffect(
     () => () => {
       if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
+      // 组件卸载时中止未完成的翻译请求，避免泄漏
+      translateAbortRef.current?.abort();
     },
     []
   );
@@ -183,6 +182,9 @@ export function DetailSheet({
     setView("zh");
     streamingRef.current = { text: "", chunkIndex: 0, totalChunks: 0 };
     setStreaming(streamingRef.current);
+    // 新建中止控制器：用户点「停止翻译」或组件卸载时 abort
+    const controller = new AbortController();
+    translateAbortRef.current = controller;
     try {
       // 先读原文
       const rawContent = await readSkillFile(skill.source_path);
@@ -194,7 +196,8 @@ export function DetailSheet({
         (fullSoFar, chunkIndex, totalChunks) => {
           streamingRef.current = { text: fullSoFar, chunkIndex, totalChunks };
           flushStreaming();
-        }
+        },
+        controller.signal
       );
       // 翻译完成，重新加载译文
       const text = await loadTranslation(skill.id);
@@ -208,28 +211,50 @@ export function DetailSheet({
       toast.success(`翻译完成${result.titleZh ? `，标题：${result.titleZh}` : ""}`);
       onTranslateDone?.();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "未知错误";
-      toast.error(`翻译失败：${msg}`);
-      setStreaming(null);
+      // 用户主动停止：不是失败，提示「已停止」
+      if (err instanceof DOMException && err.name === "AbortError") {
+        toast.info("已停止翻译——已生成的部分不会保存");
+        setStreaming(null);
+      } else {
+        const msg = err instanceof Error ? err.message : "未知错误";
+        toast.error(`翻译失败：${msg}`);
+        setStreaming(null);
+      }
     } finally {
       setTranslating(false);
       translatingRef.current = false;
+      translateAbortRef.current = null;
     }
   }, [skill, onTranslateDone, flushStreaming]);
 
+  // 点击「停止翻译」
+  const handleStopTranslate = useCallback(() => {
+    translateAbortRef.current?.abort();
+  }, []);
+
   // 点击翻译按钮
-  const handleTranslateClick = useCallback(() => {
-    if (!hasLLMKey) {
+  // P1 修复：不再依赖陈旧的 hasLLMKey 状态——用户在设置页保存 Key 后该状态不会自动
+  // 刷新，导致「已配置却仍提示未配置」的误报。改为点击时实时读取配置再判断；
+  // requireLLMConfig()（client 端）仍是最终防线，二者保持一致。
+  const handleTranslateClick = useCallback(async () => {
+    let cfg = { hasKey: false };
+    try {
+      cfg = await loadLLMConfig();
+    } catch {
+      // 读取失败按未配置处理，弹提示引导进设置
+    }
+    if (!cfg.hasKey) {
       toast.error("请先在设置中配置 API Key");
       onSettingsOpen?.();
       return;
     }
+    setHasLLMKey(true);
     if (skill?.has_translation) {
       setShowReTranslateConfirm(true);
     } else {
-      doTranslate();
+      void doTranslate();
     }
-  }, [hasLLMKey, skill, doTranslate, onSettingsOpen]);
+  }, [skill, doTranslate, onSettingsOpen]);
 
   const handleConfirmReTranslate = useCallback(() => {
     setShowReTranslateConfirm(false);
@@ -303,7 +328,7 @@ export function DetailSheet({
         className="glass-sheet flex w-[min(90vw,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
       >
         {/* 顶部三色渐变条 */}
-        <div className="h-[3px] shrink-0 bg-gradient-to-r from-brand via-cyan to-amber" />
+        <div className="h-[3px] shrink-0 bg-brand" />
 
         {/* 头部 */}
         <div className="flex shrink-0 items-start gap-[14px] border-b border-stroke px-6 pb-4 pt-5">
@@ -322,34 +347,22 @@ export function DetailSheet({
                 </Badge>
               </div>
             )}
-            {/* B4 聚合徽标：junction 落点 + 同名技能的其他出处 */}
-            {(skill.hub_linked || skill.other_sources.length > 0) && (
+            {/* B4 聚合徽标：junction 落点（同见于多工具的兼容徽章已移除——
+                跨工具可用是默认能力，非展示项） */}
+            {skill.hub_linked && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {skill.hub_linked && (
-                  <Badge variant="secondary" className="text-[11px]">
-                    <FolderSymlink className="mr-1 h-3 w-3" />
-                    Hub 链接落点
-                  </Badge>
-                )}
-                {skill.other_sources.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[11px]">
-                    同见于 {toolNames?.[t] ?? t}
-                  </Badge>
-                ))}
+                <Badge variant="secondary" className="text-[11px]">
+                  <FolderSymlink className="mr-1 h-3 w-3" />
+                  Hub 链接落点
+                </Badge>
               </div>
             )}
-            {/* C3 兼容矩阵徽章（PLAN-06 §3.6）：诊断模式，2 平台 verdict */}
-            {!isDeleted && (
-              <div className="mt-1.5">
-                <ValidationBadges skillDir={skill.skill_dir} />
-              </div>
-            )}
+            {/* C3 兼容矩阵徽章已移除（PLAN-09 拍板方案 A）：
+                「Claude/Codex 能用」是基础能力而非卖点，常亮徽章是噪音。
+                转换功能保留（必须项），不再以徽章形式展示。 */}
             <p className="mt-2 text-[13px] leading-relaxed text-text-secondary">
               {displayDesc || "无描述"}
             </p>
-            {/* C10：frontmatter 表单编辑（与创作页共用 skill_edit_frontmatter，
-                未知字段字节级保留） */}
-            {!isDeleted && <MetaEditForm skill={skill} onSaved={onEdited} />}
           </div>
           <button
             type="button"
@@ -411,6 +424,32 @@ export function DetailSheet({
                   : skill.has_translation || skill.translation_lost
                     ? "重新翻译"
                     : "翻译"}
+              </button>
+            )}
+
+            {/* 停止翻译 — 仅流式翻译进行中显示，可主动终止大文档翻译 */}
+            {!isDeleted && translating && (
+              <button
+                type="button"
+                className="mbtn !border-red-400/60 !text-red-500 hover:!bg-red-500/10"
+                onClick={handleStopTranslate}
+                title="停止翻译（已生成的部分不会保存）"
+              >
+                <StopCircle className="h-3.5 w-3.5" />
+                停止
+              </button>
+            )}
+
+            {/* 编辑存量技能：打开创作工作台编辑态（用户可在原技能基础上改写） */}
+            {!isDeleted && onEdit && (
+              <button
+                type="button"
+                className="mbtn !text-primary"
+                onClick={() => onEdit(skill)}
+                title="在创作工作台中编辑此技能"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                编辑
               </button>
             )}
 
@@ -598,68 +637,6 @@ function BilingualView({
           {i < originals.length - 1 && <hr className="my-4" />}
         </div>
       ))}
-    </div>
-  );
-}
-
-/** C10：frontmatter 元数据表单编辑（行级外科手术，未知字段字节级保留）。 */
-function MetaEditForm({
-  skill,
-  onSaved,
-}: {
-  skill: Skill;
-  onSaved?: () => void;
-}) {
-  const [openForm, setOpenForm] = useState(false);
-  const [name, setName] = useState(skill.name);
-  const [desc, setDesc] = useState(skill.description);
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await skillEditFrontmatter(skill.skill_dir, [
-        { key: "name", op: "set", value: name },
-        { key: "description", op: "set", value: desc },
-      ]);
-      toast.success("frontmatter 已保存（未知字段保留）");
-      setOpenForm(false);
-      onSaved?.();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mt-3 rounded-md border border-border/40 bg-glass-1 p-3">
-      <button
-        type="button"
-        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
-        onClick={() => setOpenForm((v) => !v)}
-      >
-        <Save className="h-3 w-3" />
-        {openForm ? "收起编辑" : "编辑 name / description（未知字段保留）"}
-      </button>
-      {openForm && (
-        <div className="mt-2 flex flex-col gap-2">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-7 font-mono text-xs"
-          />
-          <Input
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            className="h-7 text-xs"
-          />
-          <Button size="sm" className="self-end" disabled={busy} onClick={save}>
-            {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-            保存
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

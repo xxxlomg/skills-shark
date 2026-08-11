@@ -17,6 +17,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::import;
+use crate::translations;
 
 pub const FORMAT_VERSION: u32 = 1;
 /// 单次打包技能数上限（与 PLAN-05 §2.3 AI 输入预算对齐）
@@ -96,6 +97,9 @@ pub struct PackInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PackSkillInput {
     pub source_path: String,
+    /// 扫描结果的虚拟 skill_id（tool_id|rel），P10b 打包带译文时据此查译文
+    #[serde(default)]
+    pub skill_id: String,
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -103,6 +107,22 @@ pub struct PackSkillInput {
     pub description_zh: String,
     #[serde(default)]
     pub has_translation: bool,
+}
+
+/// P10b：i18n sidecar 的 meta（`i18n/<folder>/meta.json`）。
+/// 不含 source_path —— 导入方的主机路径不同，落盘时按新 skill_id 重算。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackI18nMeta {
+    #[serde(default)]
+    pub title_zh: String,
+    #[serde(default)]
+    pub source_hash: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub translated_at: String,
+    #[serde(default)]
+    pub scan_label: String,
 }
 
 /// zip 内 pack.json 探测结果（ImportDialog 分流用）
@@ -425,6 +445,7 @@ pub fn create_pack(
 
     let mut manifest_skills: Vec<PackSkillEntry> = Vec::new();
     let mut summary_inputs: Vec<(String, PackSkillInput)> = Vec::new();
+    let mut i18n_paths: Vec<String> = Vec::new();
     for (folder, src, s) in &placed {
         let dst = skills_root.join(folder);
         import::copy_dir_recursive(src, &dst)?;
@@ -441,6 +462,41 @@ pub fn create_pack(
                 .collect(),
         });
         summary_inputs.push((folder.clone(), (*s).clone()));
+
+        // P10b：已翻译技能 → 打包带双语译文 + meta（导入方立即可看译文）
+        if s.has_translation && !s.skill_id.is_empty() {
+            if let Some(bilingual) = translations::read_translated_content(&s.skill_id) {
+                if !bilingual.trim().is_empty() {
+                    let meta = translations::load_all_meta().get(&s.skill_id).cloned();
+                    let i18n_dir = tmp.join("i18n").join(folder);
+                    fs::create_dir_all(&i18n_dir).map_err(|e| e.to_string())?;
+                    fs::write(i18n_dir.join("bilingual.md"), &bilingual)
+                        .map_err(|e| e.to_string())?;
+                    let im = PackI18nMeta {
+                        title_zh: meta.as_ref().map(|m| m.title_zh.clone()).unwrap_or_default(),
+                        source_hash: meta
+                            .as_ref()
+                            .map(|m| m.source_hash.clone())
+                            .unwrap_or_default(),
+                        model: meta.as_ref().map(|m| m.model.clone()).unwrap_or_default(),
+                        translated_at: meta
+                            .as_ref()
+                            .map(|m| m.translated_at.clone())
+                            .unwrap_or_default(),
+                        scan_label: meta
+                            .as_ref()
+                            .map(|m| m.scan_label.clone())
+                            .unwrap_or_default(),
+                    };
+                    fs::write(
+                        i18n_dir.join("meta.json"),
+                        serde_json::to_string_pretty(&im).map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    i18n_paths.push(format!("i18n/{}", folder));
+                }
+            }
+        }
     }
 
     let manifest = PackManifest {
@@ -452,7 +508,7 @@ pub fn create_pack(
         created_at: chrono::Utc::now().to_rfc3339(),
         generator: GENERATOR.to_string(),
         summary: build_static_summary(name, author, &summary_inputs),
-        i18n: Vec::new(),
+        i18n: i18n_paths,
         skills: manifest_skills,
         validation_warnings,
     };
@@ -553,6 +609,34 @@ pub fn delete_pack(base: &Path, id: &str) -> Result<(), String> {
         return Err(format!("Pack 不存在: {}", id));
     }
     fs::remove_dir_all(&dir).map_err(|e| format!("删除失败: {}", e))
+}
+
+/// 重命名 Pack：更新 pack.json 的 name 并重渲染 README（README 由 manifest 派生）。
+pub fn rename_pack(base: &Path, id: &str, new_name: &str) -> Result<PackInfo, String> {
+    let dir = base.join(id);
+    if !dir.join("pack.json").is_file() {
+        return Err(format!("Pack 不存在: {}", id));
+    }
+    let name = new_name.trim();
+    if name.is_empty() {
+        return Err("名称不能为空".to_string());
+    }
+    if name.chars().count() > 80 {
+        return Err("名称过长（最多 80 字符）".to_string());
+    }
+    let mut m = read_manifest(&dir)?;
+    m.name = name.to_string();
+    fs::write(
+        dir.join("pack.json"),
+        serde_json::to_string_pretty(&m).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("pack.json 写入失败: {}", e))?;
+    fs::write(dir.join("README.md"), render_readme(&m)).map_err(|e| format!("README 写入失败: {}", e))?;
+    crate::config::debug_log(&format!(
+        "pack_rename: id={} old->new 已写入 name={}",
+        id, name
+    ));
+    Ok(to_info(&m))
 }
 
 // ---------------------------------------------------------------------------
@@ -725,24 +809,71 @@ pub fn import_pack(base: &Path, zip_path: &Path) -> Result<PackInfo, String> {
 }
 
 // ---------------------------------------------------------------------------
-// 安装（packs/<id> → imported 库，pack = 一个合集）
+// 安装（packs/<id> → 部署到用户指定目录 <target>/skills/，D6/D7/D8）
+//   • 不再塞进 imported/（import 仅负责"增加"）；安装 = 部署到真实工具目录。
+//   • 同名冲突不再自动追加 -N（D2），改为 preview 返回冲突 → 前端确认覆盖。
+//   • 目标不在扫描路径时自动加为扫描根（D7），命中现有工具根则归属该工具（D8）。
 // ---------------------------------------------------------------------------
 
-/// 安装：skills/* 逐目录拷入 imported/<stem>；stem 冲突自动追加后缀。
-pub fn install_pack(pack_base: &Path, imported_base: &Path, id: &str) -> Result<usize, String> {
+/// 安装预览：解析 pack + 冲突清单，不写盘、不改配置。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InstallPreview {
+    pub deploy_root: String,
+    pub skill_folders: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub is_new_tool: bool,
+}
+
+pub fn install_pack_preview(
+    pack_base: &Path,
+    deploy_root: &Path,
+    id: &str,
+) -> Result<InstallPreview, String> {
     let dir = pack_base.join(id);
     let m = read_manifest(&dir).map_err(|_| format!("Pack 不存在: {}", id))?;
 
-    let stem0 = import::sanitize_stem(&m.name);
-    let mut stem = stem0.clone();
-    let mut n = 2;
-    while imported_base.join(&stem).exists() {
-        stem = format!("{}-{}", stem0, n);
-        n += 1;
+    let mut skill_folders = Vec::new();
+    let mut conflicts = Vec::new();
+    for s in &m.skills {
+        let folder = s.path.trim_start_matches("skills/");
+        let src = dir.join("skills").join(folder);
+        if !src.is_dir() {
+            return Err(format!("Pack 内缺少技能目录: {}", s.path));
+        }
+        skill_folders.push(folder.to_string());
+        if deploy_root.join(folder).exists() {
+            conflicts.push(folder.to_string());
+        }
     }
-    let target = imported_base.join(&stem);
-    fs::create_dir_all(&target).map_err(|e| e.to_string())?;
 
+    let is_new_tool =
+        crate::config::find_tool_for_scan_path(deploy_root).is_none();
+    Ok(InstallPreview {
+        deploy_root: deploy_root.to_string_lossy().to_string(),
+        skill_folders,
+        conflicts,
+        is_new_tool,
+    })
+}
+
+/// 安装提交：把 pack 内容部署到 deploy_root（=<target>/skills/）。
+/// `tool_id`/`scan_label` 为归属工具（由命令层按 D7/D8 解析），本函数保持纯 FS
+/// 无配置副作用，便于单测隔离。`overwrite` = 用户确认覆盖的同名 folder 列表；
+/// 不在其中且已存在的 folder 跳过（D2）。
+pub fn install_pack_commit(
+    pack_base: &Path,
+    deploy_root: &Path,
+    id: &str,
+    overwrite: &[String],
+    tool_id: &str,
+    scan_label: &str,
+) -> Result<usize, String> {
+    let dir = pack_base.join(id);
+    let m = read_manifest(&dir).map_err(|_| format!("Pack 不存在: {}", id))?;
+
+    fs::create_dir_all(deploy_root).map_err(|e| e.to_string())?;
+
+    let mut deployed = 0usize;
     let mut records: Vec<serde_json::Value> = Vec::new();
     for s in &m.skills {
         let folder = s.path.trim_start_matches("skills/");
@@ -750,29 +881,64 @@ pub fn install_pack(pack_base: &Path, imported_base: &Path, id: &str) -> Result<
         if !src.is_dir() {
             return Err(format!("Pack 内缺少技能目录: {}", s.path));
         }
-        import::copy_dir_recursive(&src, &target.join(folder))?;
+        let dest = deploy_root.join(folder);
+        // D2：已存在且未确认覆盖 → 跳过
+        if dest.exists() && !overwrite.iter().any(|o| o == folder) {
+            continue;
+        }
+        if dest.exists() {
+            let _ = fs::remove_dir_all(&dest);
+        }
+        import::copy_dir_recursive(&src, &dest)?;
+
+        // P10b：恢复 i18n —— 按部署后的新 skill_id（<tool_id>|<rel>）落盘译文
+        let i18n_dir = dir.join("i18n").join(folder);
+        if i18n_dir.join("bilingual.md").is_file() {
+            let bilingual = fs::read_to_string(i18n_dir.join("bilingual.md")).unwrap_or_default();
+            let meta: Option<PackI18nMeta> = fs::read_to_string(i18n_dir.join("meta.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok());
+            let new_skill_id = format!("{}|{}", tool_id, folder);
+            let source_path = dest.join("SKILL.md").to_string_lossy().to_string();
+            translations::restore_imported(
+                &new_skill_id,
+                &bilingual,
+                meta.as_ref().map(|m| m.title_zh.as_str()).unwrap_or(""),
+                &source_path,
+                meta.as_ref().map(|m| m.scan_label.as_str()).unwrap_or(scan_label),
+                meta.as_ref().map(|m| m.source_hash.as_str()).unwrap_or(""),
+                meta.as_ref().map(|m| m.model.as_str()).unwrap_or(""),
+                meta.as_ref()
+                    .map(|m| m.translated_at.as_str())
+                    .unwrap_or(""),
+            )?;
+        }
+
         records.push(serde_json::json!({ "rel": folder, "folder": folder }));
+        deployed += 1;
     }
 
     let prov = serde_json::json!({
         "source": format!("pack:{}", m.id),
         "kind": "pack",
-        "imported_at": chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
+        "installed_to": tool_id,
+        "installed_at": chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
         "skills": records,
     });
     fs::write(
-        target.join(".import.json"),
+        deploy_root.join(".install.json"),
         serde_json::to_string_pretty(&prov).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
 
     crate::config::debug_log(&format!(
-        "pack_install: pack={} -> imported/{} skills={}",
+        "pack_install: pack={} -> {} (tool={}) skills={}",
         id,
-        stem,
-        m.skills.len()
+        deploy_root.display(),
+        tool_id,
+        deployed
     ));
-    Ok(m.skills.len())
+    Ok(deployed)
 }
 
 // ---------------------------------------------------------------------------
@@ -858,6 +1024,7 @@ mod tests {
     fn input(dir: &Path, name: &str, desc: &str) -> PackSkillInput {
         PackSkillInput {
             source_path: dir.join("SKILL.md").to_string_lossy().to_string(),
+            skill_id: String::new(),
             name: name.to_string(),
             description: desc.to_string(),
             description_zh: String::new(),
@@ -873,7 +1040,7 @@ mod tests {
         write_skill(&src_root.join("beta"), "beta", "desc beta");
 
         let pack_base = tmp.path().join("packs");
-        let imported = tmp.path().join("imported");
+        // 安装部署目录（新版语义：deploy_root = 选择目录/skills，见下方安装段）
 
         // 创建
         let info = create_pack(
@@ -918,15 +1085,118 @@ mod tests {
         let info3 = import_pack(&import_base, &zip_path).unwrap();
         assert_eq!(info3.id, "my-test-pack-2");
 
-        // 安装
-        let n = install_pack(&import_base, &imported, "my-test-pack").unwrap();
+        // 安装（部署到指定目录 deploy_root = <选择目录>/skills，不写 pack 名包裹）
+        let deploy_root = tmp.path().join("codex").join("skills");
+        let preview = install_pack_preview(&import_base, &deploy_root, "my-test-pack").unwrap();
+        assert_eq!(preview.skill_folders, vec!["alpha".to_string(), "beta".to_string()]);
+        assert!(preview.conflicts.is_empty(), "首次安装无冲突");
+        let n = install_pack_commit(
+            &import_base,
+            &deploy_root,
+            "my-test-pack",
+            &[],
+            "codex",
+            "Codex CLI",
+        )
+        .unwrap();
         assert_eq!(n, 2);
-        assert!(imported.join("My Test Pack/alpha/SKILL.md").is_file());
-        assert!(imported.join("My Test Pack/beta/ref.md").is_file());
-        assert!(imported.join("My Test Pack/.import.json").is_file());
-        // 再装一次 → stem 自动后缀
-        install_pack(&import_base, &imported, "my-test-pack").unwrap();
-        assert!(imported.join("My Test Pack-2/alpha/SKILL.md").is_file());
+        assert!(deploy_root.join("alpha/SKILL.md").is_file());
+        assert!(deploy_root.join("beta/ref.md").is_file());
+        assert!(deploy_root.join(".install.json").is_file());
+
+        // 再装一次 → D2 冲突：不自动后缀，未确认覆盖则跳过
+        let preview2 = install_pack_preview(&import_base, &deploy_root, "my-test-pack").unwrap();
+        assert_eq!(preview2.conflicts, vec!["alpha".to_string(), "beta".to_string()]);
+        let n2 = install_pack_commit(
+            &import_base,
+            &deploy_root,
+            "my-test-pack",
+            &[],
+            "codex",
+            "Codex CLI",
+        )
+        .unwrap();
+        assert_eq!(n2, 0, "未确认覆盖 → 全部跳过");
+        assert!(!deploy_root.join("alpha-2").exists(), "不得自动追加后缀");
+        // 确认覆盖 alpha → 只重部署 alpha
+        let n3 = install_pack_commit(
+            &import_base,
+            &deploy_root,
+            "my-test-pack",
+            &["alpha".to_string()],
+            "codex",
+            "Codex CLI",
+        )
+        .unwrap();
+        assert_eq!(n3, 1);
+        assert!(deploy_root.join("alpha/SKILL.md").is_file());
+    }
+
+    /// P10b 闭环：打包带译文 → 安装导入 → 导入方按新 skill_id 恢复译文 →
+    /// 立即可读（创建端与导入端各自指到同一临时数据目录）。
+    #[test]
+    fn pack_i18n_carry_and_restore_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 独立临时数据目录，绝不碰真实用户数据
+        crate::config::set_data_dir_for_test(tmp.path().join("data"));
+
+        let src_root = tmp.path().join("src");
+        let skill_dir = src_root.join("image-gen");
+        write_skill(&skill_dir, "image-gen", "generate images");
+        let source_path = skill_dir.join("SKILL.md").to_string_lossy().to_string();
+
+        // 造一条译文（skill_id = claude-code|image-gen）
+        let bilingual = "---\nname: image-gen\ndescription: 生成图片\n---\nbody\n";
+        crate::translations::save_translation(
+            "claude-code|image-gen",
+            bilingual,
+            &source_path,
+            "Claude Code",
+            "hash123",
+            "test-model",
+            "图像生成",
+        )
+        .unwrap();
+
+        // 打包（选中该已翻译技能）
+        let pack_base = tmp.path().join("data/packs");
+        let info = create_pack(
+            &pack_base,
+            "I18nPack",
+            "1.0.0",
+            "t",
+            &[PackSkillInput {
+                source_path: source_path.clone(),
+                skill_id: "claude-code|image-gen".to_string(),
+                name: "image-gen".to_string(),
+                description: "generate images".to_string(),
+                description_zh: "生成图片".to_string(),
+                has_translation: true,
+            }],
+            false,
+        )
+        .unwrap();
+        assert_eq!(info.id, "i18npack");
+        // 包内带双语 + meta
+        assert!(pack_base.join("i18npack/i18n/image-gen/bilingual.md").is_file());
+        assert!(pack_base.join("i18npack/i18n/image-gen/meta.json").is_file());
+        let m = read_manifest(&pack_base.join("i18npack")).unwrap();
+        assert_eq!(m.i18n, vec!["i18n/image-gen"]);
+
+        // 安装：译文按部署后的新 skill_id（<tool_id>|<folder>）恢复
+        let deploy_root = tmp.path().join("codex").join("skills");
+        install_pack_commit(&pack_base, &deploy_root, "i18npack", &[], "codex", "Codex CLI")
+            .unwrap();
+        let new_id = "codex|image-gen";
+        let restored = crate::translations::read_translated_content(new_id).expect("译文应恢复");
+        assert_eq!(restored, bilingual);
+        let meta = crate::translations::load_all_meta().get(new_id).cloned().unwrap();
+        assert_eq!(meta.title_zh, "图像生成");
+        assert_eq!(meta.source_hash, "hash123");
+        assert!(
+            meta.source_path.ends_with("image-gen\\SKILL.md")
+                || meta.source_path.ends_with("image-gen/SKILL.md")
+        );
     }
 
     #[test]
@@ -1249,5 +1519,40 @@ mod tests {
         let v2 = serde_json::to_value(PackCreateError::msg("boom")).unwrap();
         assert_eq!(v2["kind"], "message");
         assert_eq!(v2["message"], "boom");
+    }
+
+    #[test]
+    fn rename_pack_updates_name_and_readme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_root = tmp.path().join("src");
+        write_skill(&src_root.join("alpha"), "alpha", "desc alpha");
+        let pack_base = tmp.path().join("packs");
+        create_pack(
+            &pack_base,
+            "Old Name",
+            "1.0.0",
+            "tester",
+            &[input(&src_root.join("alpha"), "alpha", "desc alpha")],
+            false,
+        )
+        .unwrap();
+
+        // 改名
+        let info = rename_pack(&pack_base, "old-name", "New Name").unwrap();
+        assert_eq!(info.name, "New Name");
+        assert_eq!(info.id, "old-name");
+
+        // pack.json 与 README 同步更新
+        let m = read_manifest(&pack_base.join("old-name")).unwrap();
+        assert_eq!(m.name, "New Name");
+        let readme = fs::read_to_string(pack_base.join("old-name/README.md")).unwrap();
+        assert!(readme.starts_with("# New Name"));
+
+        // 列表反映新名
+        assert_eq!(list_packs(&pack_base)[0].name, "New Name");
+
+        // 名称校验：空名 / 不存在
+        assert!(rename_pack(&pack_base, "old-name", "   ").is_err());
+        assert!(rename_pack(&pack_base, "nope", "X").is_err());
     }
 }

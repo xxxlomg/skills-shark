@@ -41,9 +41,17 @@ export async function callLLMStream(
   apiKey: string,
   baseUrl: string,
   model: string,
-  onDelta: (delta: string) => void
+  onDelta: (delta: string) => void,
+  /** 外部中止信号（用户点「停止」时 abort）。与内部空闲超时共用同一 controller。 */
+  externalSignal?: AbortSignal
 ): Promise<StreamResult> {
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (externalSignal) {
+    // 外部已中止 → 立即随之中止；否则监听其 abort 事件
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", cancel, { once: true });
+  }
   let idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT);
   const resetIdle = () => {
     clearTimeout(idleTimer);
@@ -120,6 +128,7 @@ export async function callLLMStream(
     return { text: full, finishReason, reasoningChunks };
   } finally {
     clearTimeout(idleTimer);
+    externalSignal?.removeEventListener("abort", cancel);
   }
 }
 

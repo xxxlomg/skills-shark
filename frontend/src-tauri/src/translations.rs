@@ -135,6 +135,40 @@ pub fn read_translated_content(skill_id: &str) -> Option<String> {
     fs::read_to_string(&md_path).ok()
 }
 
+/// P10b：导入 Pack 时恢复译文 —— 按导入后的新 skill_id 落盘双语内容，
+/// 并把标题/描述等 meta 合并进 translations.json（导入方立即可看译文）。
+/// bilingual 为空时仅写 index（兼容仅有 meta 无内容的极端情况）。
+pub fn restore_imported(
+    skill_id: &str,
+    bilingual: &str,
+    title_zh: &str,
+    source_path: &str,
+    scan_label: &str,
+    source_hash: &str,
+    model: &str,
+    translated_at: &str,
+) -> Result<(), String> {
+    let dir = config::translations_dir();
+    let _ = fs::create_dir_all(&dir);
+    if !bilingual.trim().is_empty() {
+        fs::write(dir.join(md_filename(skill_id)), bilingual).map_err(|e| e.to_string())?;
+    }
+    let mut index = load_all_meta();
+    index.insert(
+        skill_id.to_string(),
+        TranslationMeta {
+            source_path: source_path.to_string(),
+            scan_label: scan_label.to_string(),
+            source_hash: source_hash.to_string(),
+            translated_at: translated_at.to_string(),
+            model: model.to_string(),
+            title_zh: title_zh.to_string(),
+            source_deleted: false,
+        },
+    );
+    save_all_meta(&index)
+}
+
 pub fn sync_deleted_status(current_ids: &[String]) -> Result<(), String> {
     let mut index = load_all_meta();
     let current_set: std::collections::HashSet<&str> =
