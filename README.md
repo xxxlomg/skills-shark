@@ -2,7 +2,7 @@
 
 > 本地 AI 技能（Agent Skills）管理、翻译与打包桌面工具 —— 让中文用户**一眼看懂、一用就会**。
 
-**当前版本：v0.2.1**（开发中）· Windows x64 NSIS 安装包
+**当前版本：v0.2.2** · Windows x64 绿色解压版（`exe` 与 `skills/` 同级目录，免安装随取随用）
 
 鲨 = 敏锐、精准、快。SkillsShark 把你散落在各个 AI 工具里的 skills 统一扫进来：
 看懂它（流式翻译成中英对照）、管好它（分类 / 搜索 / 状态追踪）、分享它（打包成 `.skillpack` 在平台内流通）。
@@ -55,6 +55,12 @@ npm run dev
 
 ```bash
 npm run tauri:build    # Windows .exe / macOS .dmg / Linux .AppImage
+```
+
+绿色解压版（Windows，当前发布形态）：
+
+```bash
+scripts/build-portable.bat   # 编译后产出 dist-portable/ 便携包（exe 与 skills/ 同级）
 ```
 
 Rust 单元测试：
@@ -174,9 +180,22 @@ xxx.skillpack (zip)
 
 - [`docs/`](./docs) — 各阶段规划与拍板记录
 - [`AGENTS.md`](./AGENTS.md) — 项目演进追踪
-- [`shark-web/`](../shark-web) — 官网与使用手册（v0.2.2 起独立为顶层项目，后续规划为个人站与作品合集）
+- [`shark-org/`](../shark-org) — 个人产品站（官网与使用手册，v0.2.2 起独立为顶层项目）
 
 ## 📌 版本记录
+
+### v0.2.2（2026-08-11）
+
+瑞士国际主义设计改版 + 品牌统一 + 五项需求落地 + 官网站点独立。
+
+- **瑞士国际主义 UI 重写**：从毛玻璃 AI 科技风改为瑞士国际主义——暖纸底 `#FAF8F4` + 单一强调珊瑚橙 `#FF6A45` + 中性灰阶；发丝线网格、圆角收敛为 3/4/6/8px；光晕 / 渐变 / 流光归零；卡片 hover 去上浮只留描边；配套 `website/design/` 设计规范稿
+- **品牌统一**：新 logo（黑鳍 + 橙浪）全面替换——Tauri 全套应用图标、顶栏 / 侧栏 logo（深浅自适应）、splash、favicon 重新生成
+- **五项需求落地**：移除僵尸「过期」指标；mock 内建示例收敛为两份 builtin；「内置」改为「内置示例」（UI 层映射 + `toolDisplayName`）；批量翻译支持停止 + 实时进度（AbortController）；官网 Hero 改真实界面截图（同构复刻 + 深浅可切）
+- **元数据编辑打磨**：详情抽屉元数据表单原文 / 译文联动 + 用途提示；经真实环境验证移除与既有编辑能力重复的 `MetaEditForm`（保留翻译 frontmatter 行级编辑）
+- **Hub 行布局**：补充出处 / 落点显式标签与落点完整路径，与网格卡片对齐
+- **发布形态切换**：弃用 NSIS 安装包，改为绿色解压版（`exe` + `skills/` 同级，随取随用）；打包脚本规范化为 `scripts/build-portable.bat` / `.sh`（全 ASCII，版本号从 `tauri.conf.json` 自动提取）；构建产物 `dist-portable/` 不入库（`.gitignore`）
+- **官网站点独立**：`website/` 从本仓库迁出为独立顶层项目 `shark-org/`（个人产品站），本仓库不再包含官网文件；官网与应用内手册保持内容同步、完全透明的功能展示
+- **双远端同步**：`main` 为唯一公开分支，gitee 与 GitHub 双远端哈希一致
 
 ### v0.2.1（2026-08-06）
 
@@ -188,7 +207,7 @@ xxx.skillpack (zip)
 - **体验修复（PLAN-09）**：配置后翻译不再误报未配 Key（DetailSheet 陈旧 `hasLLMKey`）、下拉悬停高亮、问号仅 hover 触发；Hub 反向链接源技能被吞修复（junction 落点不占代表位）；翻译 / AI 创作支持主动停止（AbortController）；下载 / 导入目录可配置
 - **打包携带译文（P10b）**：`create_pack` 写入 `i18n/` 双语 sidecar，`install_pack` 按新 skill_id 恢复译文，导入方立即可看中文
 - **空状态统一**：新增共享 `EmptyPanel` 组件，技能库 / 创作 / Hub / Packs / 分类钻取统一样式口径
-- **官网与手册**：官网站点（自 v0.2.2 起独立为 `../shark-web/`，后续规划为个人站）重写——去 GitHub（仅 Gitee）、暗色苔绿品牌、使用手册嵌入 `manual.html`；移除详情面板与侧栏的 Codex / Claude「兼容」徽章（能用是基础能力，不是卖点）
+- **官网与手册**：官网站点（自 v0.2.2 起独立为 `../shark-org/` 个人产品站）重写——去 GitHub（仅 Gitee）、暗色苔绿品牌、使用手册嵌入 `manual.html`；移除详情面板与侧栏的 Codex / Claude「兼容」徽章（能用是基础能力，不是卖点）
 
 ### v0.2.0（2026-08-05）
 
@@ -216,4 +235,4 @@ xxx.skillpack (zip)
 
 ---
 
-*最后更新：2026-08-06*
+*最后更新：2026-08-11*
