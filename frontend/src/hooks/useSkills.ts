@@ -44,7 +44,7 @@ export interface SkillGroup {
 export type LayoutMode = "grid" | "list";
 
 /** 翻译状态：ok 已翻译 / lost 译文丢失（曾翻译但文件没了）/ no 待翻译 */
-export type TranslateStatus = "ok" | "old" | "lost" | "no";
+export type TranslateStatus = "ok" | "lost" | "no";
 
 export function skillStatus(s: Skill): TranslateStatus {
   if (s.has_translation) return "ok";
@@ -54,10 +54,23 @@ export function skillStatus(s: Skill): TranslateStatus {
 
 export const STATUS_TEXT: Record<TranslateStatus, string> = {
   ok: "已翻译",
-  old: "译文过期",
   lost: "译文丢失",
   no: "待翻译",
 };
+
+/**
+ * 工具/分类显示名映射。
+ * 内部 id（builtin/imported/authored）是 scanner/translations 的硬契约，不可修改；
+ * 仅在 UI 层把晦涩的 id 换成更易懂的中文名。新增映射只需加一行。
+ */
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  builtin: "内置示例",
+};
+
+/** 将工具/分类内部名映射为面向用户的显示名（无映射时原样返回）。 */
+export function toolDisplayName(label: string): string {
+  return TOOL_DISPLAY_NAMES[label] ?? label;
+}
 
 /** 通用容器目录名：嵌套合集最内层常叫 skills/skill，无标识意义，显示时跳过 */
 const GENERIC_COLLECTION_SEGMENTS = new Set(["skills", "skill"]);

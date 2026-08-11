@@ -1,10 +1,9 @@
-import { Layers, CheckCircle2, AlertTriangle, Package, FileWarning } from "lucide-react";
+import { Layers, CheckCircle2, Package, FileWarning } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 interface StatBarProps {
   total: number;
   translated: number;
-  outdated: number;
   /** 译文丢失（曾翻译但文件没了）；与卡片徽章同源同步 */
   lost: number;
   packCount: number;
@@ -18,17 +17,16 @@ interface StatItem {
 }
 
 /**
- * 统计条：技能总数 / 已翻译 / 过期 / Packs + 翻译进度条。
+ * 统计条：技能总数 / 已翻译 / 译文丢失 / Packs + 翻译进度条。
  * 视觉来源：docs/style.css .statbar / .stat / .progwrap / .prog
  */
-export function StatBar({ total, translated, outdated, lost, packCount }: StatBarProps) {
+export function StatBar({ total, translated, lost, packCount }: StatBarProps) {
   const pct = total > 0 ? Math.round((translated / total) * 100) : 0;
 
   const items: StatItem[] = [
     { icon: Layers, color: "var(--cyan)", value: total, label: "技能" },
     { icon: CheckCircle2, color: "var(--green)", value: translated, label: "已翻译" },
     { icon: FileWarning, color: "var(--amber)", value: lost, label: "译文丢失" },
-    { icon: AlertTriangle, color: "var(--amber)", value: outdated, label: "过期" },
     { icon: Package, color: "var(--rose)", value: packCount, label: "Packs" },
   ];
 

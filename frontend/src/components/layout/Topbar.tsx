@@ -9,7 +9,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import sharkTile from "@/assets/brand/shark-tile.png";
+import finLight from "@/assets/brand/fin-light.png";
+import finDark from "@/assets/brand/fin-dark.png";
 import { Tip } from "@/components/common/Tip";
 import {
   DropdownMenu,
@@ -51,14 +52,13 @@ export function Topbar({
     <header className="glass-topbar sticky top-0 z-40 flex items-center gap-4 px-[26px] py-3">
       {/* 品牌区 */}
       <div className="flex shrink-0 items-center gap-[11px]">
-        {/* SkillsShark mark：实心剪影鲨，浅底 navy */}
+        {/* SkillsShark mark：鳍+浪，深浅自适应（瑞士风极简，无光晕） */}
         <img
-          src={sharkTile}
+          src={isDark ? finDark : finLight}
           alt=""
           aria-hidden
           draggable={false}
-          className="h-[38px] w-[38px] rounded-[11px]"
-          style={{ boxShadow: "0 6px 18px -6px var(--glow)" }}
+          className="h-[30px] w-auto"
         />
         <div>
           <h1 className="font-display text-[17px] font-semibold leading-none tracking-[0.2px] text-text-primary">

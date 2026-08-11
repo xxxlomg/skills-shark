@@ -609,10 +609,10 @@ function App() {
               <ChevronRight className="h-3 w-3 shrink-0" />
               <button
                 type="button"
-                onClick={() => handleOpenCollection(view.label, view.collection)}
+                onClick={() => handleOpenCollection(view.label, view.collection ?? null)}
                 className="truncate transition-colors hover:text-text-primary"
               >
-                {collectionRelativeName(view.label, view.collection)}
+                {collectionRelativeName(view.label, view.collection ?? "")}
               </button>
             </>
           )}
@@ -683,7 +683,6 @@ function App() {
               <StatBar
                 total={totalSkills}
                 translated={translatedCount}
-                outdated={0}
                 lost={lostCount}
                 packCount={packs.length}
               />
@@ -698,7 +697,6 @@ function App() {
             <StatBar
               total={totalSkills}
               translated={translatedCount}
-              outdated={0}
               lost={lostCount}
               packCount={packs.length}
             />

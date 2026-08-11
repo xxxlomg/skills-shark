@@ -399,40 +399,48 @@ export function HubView({
     </div>
   );
 
-  /** 列表行：名称 + 内联流动 + 状态点 + ⋯菜单 */
+  /** 列表行：两栏结构——左栏（名称 + 出处/落点）可截断收缩，右栏（状态 + ⋯菜单）固定不换行 */
   const renderRow = (s: LinkStatus, busy: boolean) => (
     <div
       key={s.id}
-      className={`glass-card relative flex flex-wrap items-center gap-x-3 gap-y-1.5 px-[18px] py-[12px] ${barCls(s)}`}
+      className={`glass-card relative flex items-center gap-3 px-[18px] py-[12px] ${barCls(s)}`}
     >
-      <span className="text-[16px]">🧩</span>
-      <span className="truncate font-display text-[14px] font-semibold text-text-primary">
-        {s.skill_name}
-      </span>
-      {/* 模式（链接/副本）紧跟名称，不单独占行 */}
-      <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-1.5 py-[1px] text-[10.5px] text-text-secondary">
-        {s.mode === "link" ? "链接" : "副本"}
-      </span>
-      <Tip
-        side="bottom"
-        label={
-          <span className="block font-mono text-[11px]">
-            落点：{toolNames[s.target_tool] ?? s.target_tool}
-            <br />
-            {winPath(s.target)}
+      {/* 左栏：min-w-0 flex-1，路径超长时截断而非把右栏挤换行 */}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-[16px]">🧩</span>
+          <span className="truncate font-display text-[14px] font-semibold text-text-primary">
+            {s.skill_name}
           </span>
-        }
-      >
-        <span className="flex min-w-0 flex-1 basis-full items-center gap-1.5 font-mono text-[11px] sm:basis-auto">
-          <span className="shrink-0 text-[10.5px] font-semibold text-text-tertiary">出处</span>
-          <span className="truncate text-text-tertiary">{winPath(s.source)}</span>
-          <ArrowRight className="h-3 w-3 shrink-0 text-text-tertiary" />
-          <span className="shrink-0 text-[10.5px] font-semibold text-brand">落点</span>
-          <span className="min-w-0 truncate text-text-secondary">{winPath(s.target)}</span>
-        </span>
-      </Tip>
-      {healthChip(s)}
-      {renderMenu(s, busy)}
+          {/* 模式（链接/副本）紧跟名称，不单独占行 */}
+          <span className="shrink-0 rounded-md border border-stroke bg-glass-2 px-1.5 py-[1px] text-[10.5px] text-text-secondary">
+            {s.mode === "link" ? "链接" : "副本"}
+          </span>
+        </div>
+        <Tip
+          side="bottom"
+          label={
+            <span className="block font-mono text-[11px]">
+              落点：{toolNames[s.target_tool] ?? s.target_tool}
+              <br />
+              {winPath(s.target)}
+            </span>
+          }
+        >
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+            <span className="shrink-0 text-[10.5px] font-semibold text-text-tertiary">出处</span>
+            <span className="min-w-0 truncate text-text-tertiary">{winPath(s.source)}</span>
+            <ArrowRight className="h-3 w-3 shrink-0 text-text-tertiary" />
+            <span className="shrink-0 text-[10.5px] font-semibold text-brand">落点</span>
+            <span className="min-w-0 truncate text-text-secondary">{winPath(s.target)}</span>
+          </span>
+        </Tip>
+      </div>
+      {/* 右栏：状态 + 菜单，shrink-0 固定，永远在行尾不换行 */}
+      <div className="flex shrink-0 items-center gap-2">
+        {healthChip(s)}
+        {renderMenu(s, busy)}
+      </div>
     </div>
   );
 

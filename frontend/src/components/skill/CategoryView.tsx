@@ -7,6 +7,7 @@ import {
   Languages,
   Loader2,
   PenLine,
+  Square,
 } from "lucide-react";
 import { SkillCard } from "./SkillCard";
 import { LayoutToggle } from "./LayoutToggle";
@@ -14,7 +15,7 @@ import { SectionHead } from "@/components/common/SectionHead";
 import { EmptyPanel } from "@/components/common/EmptyPanel";
 import { useBatchTranslate } from "@/hooks/useBatchTranslate";
 import type { Skill, LayoutMode } from "@/hooks/useSkills";
-import { collectionRelativeName } from "@/hooks/useSkills";
+import { collectionRelativeName, toolDisplayName } from "@/hooks/useSkills";
 
 interface CategoryViewProps {
   label: string;
@@ -113,7 +114,7 @@ export function CategoryView({
   onTranslateDone,
 }: CategoryViewProps) {
   const [query, setQuery] = useState("");
-  const { batch, running, run } = useBatchTranslate({
+  const { batch, running, run, stop } = useBatchTranslate({
     onNeedSettings: onSettingsOpen,
     onDone: onTranslateDone,
   });
@@ -215,11 +216,11 @@ export function CategoryView({
     <div className="relative py-6">
       <button type="button" onClick={onBack} className="back-btn">
         <ArrowLeft className="h-[15px] w-[15px]" />
-        {collection ? `返回 ${label}` : "返回技能库"}
+        {collection ? `返回 ${toolDisplayName(label)}` : "返回技能库"}
       </button>
 
       <SectionHead
-        title={scopedTitle}
+        title={toolDisplayName(scopedTitle)}
         subtitle={`${base.length} 个技能 · ${okCount} 已翻译 · ${pendingCount} 待处理`}
       >
         {onCreateIn && (
@@ -227,30 +228,47 @@ export function CategoryView({
             type="button"
             className="mbtn primary"
             onClick={() => onCreateIn(createTarget)}
-            title={`在「${label}」下创作技能`}
+            title={`在「${toolDisplayName(label)}」下创作技能`}
           >
             <PenLine className="h-3.5 w-3.5" />
             创作
           </button>
         )}
-        <button
-          type="button"
-          className="mbtn primary"
-          onClick={() => run(base)}
-          disabled={running || !hasUntranslated}
-        >
-          {running ? (
-            <>
+        {running ? (
+          <>
+            {/* 进度可观测：第几个 / 总数 / 当前技能名 */}
+            <button
+              type="button"
+              className="mbtn primary"
+              disabled
+              title={`当前正在翻译：${batch?.name ?? ""}`}
+            >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              翻译中 {batch?.current}/{batch?.total}
-            </>
-          ) : (
-            <>
-              <Languages className="h-3.5 w-3.5" />
-              批量翻译未译
-            </>
-          )}
-        </button>
+              <span className="max-w-[180px] truncate">
+                翻译中 {batch?.current}/{batch?.total} · {batch?.name}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="mbtn"
+              onClick={stop}
+              title="停止批量翻译（已完成的不受影响）"
+            >
+              <Square className="h-3.5 w-3.5" />
+              停止
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="mbtn primary"
+            onClick={() => run(base)}
+            disabled={!hasUntranslated}
+          >
+            <Languages className="h-3.5 w-3.5" />
+            批量翻译未译
+          </button>
+        )}
         <LayoutToggle value={layout} onChange={onLayoutChange} />
       </SectionHead>
 

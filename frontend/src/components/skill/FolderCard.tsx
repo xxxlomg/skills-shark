@@ -1,7 +1,7 @@
 import { memo, type CSSProperties } from "react";
 import { Folder } from "lucide-react";
 import { Tip } from "@/components/common/Tip";
-import { skillStatus, type Skill, type SkillGroup } from "@/hooks/useSkills";
+import { skillStatus, toolDisplayName, type Skill, type SkillGroup } from "@/hooks/useSkills";
 
 interface FolderCardProps {
   group: SkillGroup;
@@ -42,7 +42,7 @@ export const FolderCard = memo(function FolderCard({
           </span>
           <div className="relative z-[1] min-w-0">
             <h3 className="truncate font-display text-[15.5px] font-semibold text-text-primary">
-              {group.label}
+              {toolDisplayName(group.label)}
             </h3>
             <p className="font-mono text-[11px] text-text-tertiary">
               {ok}/{total} 已翻译
@@ -92,7 +92,7 @@ export const FolderCard = memo(function FolderCard({
           </span>
         </div>
         <h3 className="relative z-[1] mt-4 truncate font-display text-[19px] font-semibold leading-snug text-text-primary">
-          {group.label}
+          {toolDisplayName(group.label)}
         </h3>
         <p className="relative z-[1] mt-[3px] font-mono text-[12px] text-text-tertiary">
           {ok}/{total} 已翻译

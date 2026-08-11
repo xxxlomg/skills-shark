@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { isMockMode } from "@/mock";
+import { toolDisplayName } from "@/hooks/useSkills";
 import {
   Dialog,
   DialogContent,
@@ -567,7 +568,7 @@ export function SettingsDialog({ open, onOpenChange, onSaved, navMode, onNavMode
                         </Tip>
                         <div className="flex-1 min-w-0">
                           <p className="flex items-center gap-2 text-sm font-medium">
-                            <span className="truncate">{t.name}</span>
+                            <span className="truncate">{toolDisplayName(t.name)}</span>
                             <span className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
                               {badge}
                             </span>

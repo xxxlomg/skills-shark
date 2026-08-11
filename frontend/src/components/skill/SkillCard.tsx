@@ -97,6 +97,5 @@ export const SkillCard = memo(function SkillCard({ skill, index, layout, onClick
   // 忽略 onClick：闭包仅捕获稳定 skill + 父级稳定回调，同 skill 下行为等价
   prev.skill === next.skill &&
   prev.index === next.index &&
-  prev.layout === next.layout &&
-  prev.toolNames === next.toolNames
+  prev.layout === next.layout
 );

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface SectionHeadProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   /** 右侧操作区 */
   children?: ReactNode;
 }

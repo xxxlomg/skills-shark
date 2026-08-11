@@ -174,6 +174,7 @@ xxx.skillpack (zip)
 
 - [`docs/`](./docs) — 各阶段规划与拍板记录
 - [`AGENTS.md`](./AGENTS.md) — 项目演进追踪
+- [`shark-web/`](../shark-web) — 官网与使用手册（v0.2.2 起独立为顶层项目，后续规划为个人站与作品合集）
 
 ## 📌 版本记录
 
@@ -187,7 +188,7 @@ xxx.skillpack (zip)
 - **体验修复（PLAN-09）**：配置后翻译不再误报未配 Key（DetailSheet 陈旧 `hasLLMKey`）、下拉悬停高亮、问号仅 hover 触发；Hub 反向链接源技能被吞修复（junction 落点不占代表位）；翻译 / AI 创作支持主动停止（AbortController）；下载 / 导入目录可配置
 - **打包携带译文（P10b）**：`create_pack` 写入 `i18n/` 双语 sidecar，`install_pack` 按新 skill_id 恢复译文，导入方立即可看中文
 - **空状态统一**：新增共享 `EmptyPanel` 组件，技能库 / 创作 / Hub / Packs / 分类钻取统一样式口径
-- **官网与手册**：`website/` 重写——去 GitHub（仅 Gitee）、暗色苔绿品牌、使用手册嵌入 `manual.html`；移除详情面板与侧栏的 Codex / Claude「兼容」徽章（能用是基础能力，不是卖点）
+- **官网与手册**：官网站点（自 v0.2.2 起独立为 `../shark-web/`，后续规划为个人站）重写——去 GitHub（仅 Gitee）、暗色苔绿品牌、使用手册嵌入 `manual.html`；移除详情面板与侧栏的 Codex / Claude「兼容」徽章（能用是基础能力，不是卖点）
 
 ### v0.2.0（2026-08-05）
 

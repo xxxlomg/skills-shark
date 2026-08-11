@@ -12,7 +12,8 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import sharkTile from "@/assets/brand/shark-tile.png";
+import finLight from "@/assets/brand/fin-light.png";
+import finDark from "@/assets/brand/fin-dark.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -114,12 +115,11 @@ export function Sidebar({
         }`}
       >
         <img
-          src={sharkTile}
+          src={isDark ? finDark : finLight}
           alt=""
           aria-hidden
           draggable={false}
-          className={collapsed ? "h-[30px] w-[30px] rounded-[9px]" : "h-[34px] w-[34px] rounded-[10px]"}
-          style={{ boxShadow: "0 6px 18px -6px var(--glow)" }}
+          className={collapsed ? "h-[26px] w-auto" : "h-[30px] w-auto"}
         />
         {!collapsed && (
           <div className="min-w-0 flex-1">
